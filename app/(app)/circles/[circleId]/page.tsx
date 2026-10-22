@@ -1,16 +1,12 @@
 import { CircleDetail } from "@/components/circle-detail";
-import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/require-user";
 
 export default async function CirclePage({
   params,
 }: {
   params: Promise<{ circleId: string }>;
 }) {
-  const [
-    { circleId },
-    {
-      data: { user },
-    },
-  ] = await Promise.all([params, (await createClient()).auth.getUser()]);
-  return <CircleDetail userId={user!.id} circleId={circleId} />;
+  const { circleId } = await params;
+  const user = await requireUser(`/circles/${circleId}`);
+  return <CircleDetail userId={user.id} circleId={circleId} />;
 }

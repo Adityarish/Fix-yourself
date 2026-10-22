@@ -101,5 +101,104 @@ Deno.serve(async (request) => {
     if (delivered) sent += 1;
     else failed += 1;
   }
-  return Response.json({ claimed: deliveries?.length ?? 0, sent, failed });
+  const { data: digests, error: digestError } = await admin.rpc(
+    "claim_due_daily_task_digests",
+    { p_limit: 100 },
+  );
+  if (digestError)
+    return Response.json(
+      {
+        claimed: deliveries?.length ?? 0,
+        sent,
+        failed,
+        error: digestError.message,
+      },
+      { status: 500 },
+    );
+
+  let digestsSent = 0;
+  let digestsFailed = 0;
+  for (const digest of digests ?? []) {
+    const titles = (digest.task_titles as string[] | null) ?? [];
+    const taskCount = Number(digest.task_count ?? titles.length);
+    if (!taskCount) {
+      await admin
+        .from("daily_task_digest_deliveries")
+        .update({ status: "cancelled", last_error: null })
+        .eq("user_id", digest.user_id)
+        .eq("local_date", digest.local_date);
+      continue;
+    }
+    const visibleTitles: string[] = [];
+    for (const title of titles) {
+      const nextLength = visibleTitles.join("\n").length + title.length;
+      if (visibleTitles.length && nextLength > 700) break;
+      visibleTitles.push(`• ${title}`);
+    }
+    const remaining = Math.max(0, taskCount - visibleTitles.length);
+    const summary = `${visibleTitles.join("\n")}${remaining ? `\n+${remaining} more` : ""}`;
+    const { data: subscriptions } = await admin
+      .from("push_subscriptions")
+      .select("id,endpoint,p256dh,auth")
+      .eq("user_id", digest.user_id)
+      .is("revoked_at", null);
+    let delivered = false;
+    let lastError = "no active subscription";
+    for (const subscription of subscriptions ?? []) {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+          },
+          JSON.stringify({
+            title: `Today’s plan · ${taskCount} ${taskCount === 1 ? "task" : "tasks"}`,
+            body: summary,
+            kind: "daily-summary",
+            taskCount,
+            localDate: digest.local_date,
+            url: "/today",
+          }),
+          { TTL: 21_600 },
+        );
+        delivered = true;
+      } catch (sendError) {
+        const status = Number(
+          (sendError as { statusCode?: number }).statusCode ?? 0,
+        );
+        lastError =
+          sendError instanceof Error
+            ? sendError.message.slice(0, 500)
+            : "push failed";
+        if (status === 404 || status === 410)
+          await admin
+            .from("push_subscriptions")
+            .update({ revoked_at: new Date().toISOString() })
+            .eq("id", subscription.id);
+      }
+    }
+    await admin
+      .from("daily_task_digest_deliveries")
+      .update(
+        delivered
+          ? {
+              status: "sent",
+              sent_at: new Date().toISOString(),
+              last_error: null,
+            }
+          : { status: "failed", last_error: lastError },
+      )
+      .eq("user_id", digest.user_id)
+      .eq("local_date", digest.local_date);
+    if (delivered) digestsSent += 1;
+    else digestsFailed += 1;
+  }
+  return Response.json({
+    claimed: deliveries?.length ?? 0,
+    sent,
+    failed,
+    digestsClaimed: digests?.length ?? 0,
+    digestsSent,
+    digestsFailed,
+  });
 });

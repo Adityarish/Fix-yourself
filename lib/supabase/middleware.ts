@@ -8,6 +8,7 @@ export async function refreshSession(request: NextRequest) {
   if (!url || !key) return response;
 
   const supabase = createServerClient(url, key, {
+    cookieOptions: { name: "nestlist-auth" },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet) {

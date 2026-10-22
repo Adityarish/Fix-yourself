@@ -7,5 +7,7 @@ export function createClient() {
     throw new Error(
       "Supabase is not configured. Add the public URL and publishable key.",
     );
-  return createBrowserClient(url, key);
+  return createBrowserClient(url, key, {
+    cookieOptions: { name: "nestlist-auth" },
+  });
 }

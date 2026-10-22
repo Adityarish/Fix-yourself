@@ -210,6 +210,11 @@ async function hydrateSnapshot(
             defaultCapacity: profile.default_capacity,
             weekStartsOn: profile.week_starts_on,
             theme: profile.theme,
+            dailyDigestEnabled: profile.daily_digest_enabled,
+            dailyDigestTime: String(profile.daily_digest_time ?? "08:00").slice(
+              0,
+              5,
+            ),
           },
         });
       for (const row of rows.spaces ?? [])
@@ -607,6 +612,12 @@ async function applyChange(
         await db.tasks.put(task);
     }
   }
+  if (change.entityType === "routine" && change.operation === "delete")
+    await db.routines.update(change.entityId, {
+      active: false,
+      _deleted: true,
+      _syncStatus: "synced",
+    });
   await db.activity.put({
     sequence: change.sequence,
     spaceId: change.spaceId,

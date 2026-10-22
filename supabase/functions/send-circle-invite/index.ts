@@ -13,9 +13,11 @@ Deno.serve(async (request) => {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
-  const { email, inviteUrl } = (await request.json()) as {
+  const { email, inviteUrl, circleName, inviterName } = (await request.json()) as {
     email?: string;
     inviteUrl?: string;
+    circleName?: string;
+    inviterName?: string;
   };
   if (
     !email ||
@@ -37,8 +39,14 @@ Deno.serve(async (request) => {
     },
     body: JSON.stringify({
       to: email,
-      subject: "Join a NestList Circle",
-      text: `You have been invited to a NestList Circle. This link expires in 7 days: ${inviteUrl}`,
+      subject: `${inviterName || "A Circle admin"} invited you to ${circleName || "a NestList Circle"}`,
+      text: [
+        `${inviterName || "A Circle admin"} invited you to join “${circleName || "a NestList Circle"}” on NestList.`,
+        "",
+        `Review the invitation: ${inviteUrl}`,
+        "",
+        "This invitation expires in 7 days. You can also sign in and review it from the Circles page.",
+      ].join("\n"),
     }),
   });
   return Response.json(

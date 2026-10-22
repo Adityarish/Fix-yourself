@@ -1,21 +1,50 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Bell, Download, Plus, RefreshCw, Users } from "lucide-react";
+import {
+  Bell,
+  Check,
+  Download,
+  Mail,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { deleteUserDatabase, getDatabase } from "@/lib/db/client-db";
 import { setCapacity } from "@/lib/db/repositories/capacities";
 import {
   createRoutine,
+  deleteRoutine,
   setRoutineCompletion,
 } from "@/lib/db/repositories/routines";
-import { createCircle, createCircleInvite } from "@/lib/db/repositories/spaces";
+import {
+  createCircle,
+  createCircleInvite,
+  listMyCircleInvites,
+  respondToCircleInvite,
+  type CircleInviteRequest,
+} from "@/lib/db/repositories/spaces";
 import { getDeviceId } from "@/lib/db/repositories/outbox";
-import { enablePush, disablePush } from "@/lib/notifications/push";
+import {
+  enablePush,
+  getPushStatus,
+  saveDailySummaryPreferences,
+  type PushStatus,
+} from "@/lib/notifications/push";
 import { syncNow } from "@/lib/sync/engine";
 import { createClient } from "@/lib/supabase/browser";
+import { MemberAvatar } from "@/components/member-avatar";
 import {
   isRoutineEligible,
   routineLocalDate,
@@ -30,9 +59,11 @@ function todayKey() {
 export function RoutinesPanel({
   userId,
   personalSpaceId,
+  allowDelete = false,
 }: {
   userId: string;
   personalSpaceId: string | null;
+  allowDelete?: boolean;
 }) {
   const db = useMemo(() => getDatabase(userId), [userId]);
   const routines =
@@ -78,6 +109,21 @@ export function RoutinesPanel({
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Could not save this routine.",
+      );
+    }
+  }
+
+  async function removeRoutine(routine: (typeof routines)[number]) {
+    if (!window.confirm(`Delete “${routine.title}”?`)) return;
+    try {
+      await deleteRoutine(userId, routine);
+      setMessage("Routine deleted.");
+      if (navigator.onLine) void syncNow(userId, getDeviceId(userId));
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not delete this routine.",
       );
     }
   }
@@ -161,9 +207,22 @@ export function RoutinesPanel({
               <article className="feature-card" key={routine.id}>
                 <div className="card-title">
                   <strong>{routine.title}</strong>
-                  <span>
-                    {progress.completed}/{progress.total}
-                  </span>
+                  <div className="routine-card-actions">
+                    <span>
+                      {progress.completed}/{progress.total}
+                    </span>
+                    {allowDelete && (
+                      <button
+                        type="button"
+                        className="icon-button danger-icon routine-delete"
+                        onClick={() => void removeRoutine(routine)}
+                        aria-label={`Delete ${routine.title} routine`}
+                        title="Delete routine"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="routine-progress">
                   <span
@@ -182,7 +241,10 @@ export function RoutinesPanel({
                         !completion._deleted,
                     );
                     return (
-                      <label className="check-row" key={item.id}>
+                      <label
+                        className={`check-row ${done ? "done" : ""}`}
+                        key={item.id}
+                      >
                         <input
                           type="checkbox"
                           checked={done}
@@ -223,6 +285,7 @@ export function RoutinesPanel({
 }
 
 export function CirclesPanel({ userId }: { userId: string }) {
+  const router = useRouter();
   const db = useMemo(() => getDatabase(userId), [userId]);
   const spaces =
     useLiveQuery(
@@ -251,6 +314,63 @@ export function CirclesPanel({ userId }: { userId: string }) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
+  const [inviteRequests, setInviteRequests] = useState<CircleInviteRequest[]>(
+    [],
+  );
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [respondingTo, setRespondingTo] = useState("");
+
+  const refreshInviteRequests = useCallback(async () => {
+    if (!navigator.onLine) {
+      setRequestsLoading(false);
+      return;
+    }
+    try {
+      setInviteRequests(await listMyCircleInvites());
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load Circle invitations.",
+      );
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshInviteRequests();
+  }, [refreshInviteRequests]);
+
+  async function respondToRequest(
+    invitation: CircleInviteRequest,
+    accept: boolean,
+  ) {
+    if (!navigator.onLine)
+      return setMessage("Responding to an invitation requires a connection.");
+    setRespondingTo(invitation.id);
+    try {
+      const result = await respondToCircleInvite(invitation.id, accept);
+      setInviteRequests((current) =>
+        current.filter((item) => item.id !== invitation.id),
+      );
+      if (!accept) {
+        setMessage(`Invitation to ${invitation.circleName} declined.`);
+        return;
+      }
+      await syncNow(userId, getDeviceId(userId));
+      setMessage(`You joined ${invitation.circleName}.`);
+      router.push(`/circles/${result.spaceId}`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not respond to this invitation.",
+      );
+    } finally {
+      setRespondingTo("");
+    }
+  }
 
   async function addCircle(event: FormEvent) {
     event.preventDefault();
@@ -277,7 +397,7 @@ export function CirclesPanel({ userId }: { userId: string }) {
       setMessage(
         result.delivered
           ? "Invitation sent."
-          : "Invite created and copied. Email delivery is not configured.",
+          : `Invite created and copied. ${result.deliveryError ?? "Email delivery failed."}`,
       );
     } catch (error) {
       setMessage(
@@ -290,6 +410,67 @@ export function CirclesPanel({ userId }: { userId: string }) {
 
   return (
     <section className="feature-stack">
+      <section className="circle-requests" aria-labelledby="circle-requests-title">
+        <div className="circle-requests-heading">
+          <div>
+            <span className="section-eyebrow">Your invitations</span>
+            <h2 id="circle-requests-title">Circle requests</h2>
+          </div>
+          <span className="request-count">{inviteRequests.length}</span>
+        </div>
+        <div className="circle-request-list">
+          {inviteRequests.map((invitation) => {
+            const busy = respondingTo === invitation.id;
+            return (
+              <article className="circle-request-card" key={invitation.id}>
+                <MemberAvatar
+                  name={invitation.invitedByName}
+                  userId={invitation.invitedBy}
+                  size="medium"
+                />
+                <div className="circle-request-copy">
+                  <strong>{invitation.circleName}</strong>
+                  <span>
+                    {invitation.invitedByName} invited you as a member
+                  </span>
+                  <small>
+                    Expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                  </small>
+                </div>
+                <div className="circle-request-actions">
+                  <button
+                    type="button"
+                    className="subtle-button request-decline"
+                    disabled={Boolean(respondingTo)}
+                    onClick={() => void respondToRequest(invitation, false)}
+                  >
+                    <X size={15} /> Decline
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={Boolean(respondingTo)}
+                    onClick={() => void respondToRequest(invitation, true)}
+                  >
+                    <Check size={15} /> {busy ? "Joining…" : "Accept"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+          {!requestsLoading && !inviteRequests.length && (
+            <div className="empty circle-requests-empty">
+              <Mail size={19} />
+              <span>No pending Circle invitations.</span>
+            </div>
+          )}
+          {requestsLoading && (
+            <div className="empty circle-requests-empty">
+              Loading invitations…
+            </div>
+          )}
+        </div>
+      </section>
       <form className="inline-form" onSubmit={addCircle}>
         <input
           value={name}
@@ -303,33 +484,60 @@ export function CirclesPanel({ userId }: { userId: string }) {
         </button>
       </form>
       <div className="card-grid">
-        {spaces.map((space) => (
-          <article className="feature-card" key={space.id}>
-            <div className="card-title">
-              <strong>{space.name}</strong>
-              <span>
-                {tasks.filter((task) => task.spaceId === space.id).length} open
-              </span>
-            </div>
-            <p>
-              {members
-                .filter((member) => member.spaceId === space.id)
-                .map((member) => member.displayName ?? "Member")
-                .join(", ")}
-            </p>
-            <div className="card-actions">
-              <Link className="subtle-button" href={`/circles/${space.id}`}>
-                Open
-              </Link>
-              <button
-                className="subtle-button"
-                onClick={() => setSelected(space.id)}
-              >
-                Invite
-              </button>
-            </div>
-          </article>
-        ))}
+        {spaces.map((space) => {
+          const circleMembers = members.filter(
+            (member) => member.spaceId === space.id,
+          );
+          const managers = circleMembers.filter(
+            (member) => member.role === "owner" || member.role === "admin",
+          ).length;
+          return (
+            <article
+              className="feature-card circle-overview-card"
+              key={space.id}
+            >
+              <div className="card-title">
+                <strong>{space.name}</strong>
+                <span>
+                  {tasks.filter((task) => task.spaceId === space.id).length}{" "}
+                  open
+                </span>
+              </div>
+              <div className="circle-member-preview">
+                <div className="avatar-stack" aria-hidden="true">
+                  {circleMembers.slice(0, 4).map((member) => (
+                    <MemberAvatar
+                      key={member.key}
+                      name={member.displayName ?? "Member"}
+                      userId={member.userId}
+                      avatarUrl={member.avatarUrl}
+                      size="small"
+                    />
+                  ))}
+                  {circleMembers.length > 4 && (
+                    <span className="avatar-more">
+                      +{circleMembers.length - 4}
+                    </span>
+                  )}
+                </div>
+                <p>
+                  {circleMembers.length} members · {managers} managing
+                </p>
+              </div>
+              <div className="card-actions">
+                <Link className="subtle-button" href={`/circles/${space.id}`}>
+                  Open
+                </Link>
+                <button
+                  className="subtle-button"
+                  onClick={() => setSelected(space.id)}
+                >
+                  Invite
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </div>
       {!spaces.length && (
         <div className="empty">
@@ -393,6 +601,8 @@ export function SettingsPanel({
         defaultCapacity?: number;
         weekStartsOn?: number;
         theme?: string;
+        dailyDigestEnabled?: boolean;
+        dailyDigestTime?: string;
       }
     | undefined;
   const [capacityEdit, setCapacityEdit] = useState<number | null>(null);
@@ -407,14 +617,45 @@ export function SettingsPanel({
     profile?.timezone ??
     Intl.DateTimeFormat().resolvedOptions().timeZone;
   const weekStart = weekStartEdit ?? profile?.weekStartsOn ?? 1;
-  const theme =
-    themeEdit ??
-    profile?.theme ??
-    (typeof localStorage === "undefined"
-      ? "system"
-      : (localStorage.getItem("nestlist-theme") ?? "system"));
+  const theme = themeEdit ?? profile?.theme ?? "system";
   const [storage, setStorage] = useState("");
   const [message, setMessage] = useState("");
+  const [pushStatus, setPushStatus] = useState<PushStatus>("available");
+  const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null);
+  const [digestTime, setDigestTime] = useState<string | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<
+    | (Event & {
+        prompt(): Promise<void>;
+        userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+      })
+    | null
+  >(null);
+  const dailyDigestEnabled =
+    digestEnabled ?? profile?.dailyDigestEnabled ?? false;
+  const dailyDigestTime = digestTime ?? profile?.dailyDigestTime ?? "08:00";
+
+  useEffect(() => {
+    void getPushStatus()
+      .then(setPushStatus)
+      .catch(() => setPushStatus("available"));
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    setInstalled(standalone);
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(
+        event as Event & {
+          prompt(): Promise<void>;
+          userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+        },
+      );
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    return () =>
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+  }, []);
 
   async function estimateStorage() {
     const value = await navigator.storage?.estimate();
@@ -569,9 +810,84 @@ export function SettingsPanel({
         defaultCapacity: capacity,
         weekStartsOn: weekStart,
         theme,
+        dailyDigestEnabled,
+        dailyDigestTime,
       },
     });
     setMessage("Profile settings saved.");
+  }
+
+  async function cacheDailySummary(enabled: boolean, localTime: string) {
+    const current = await db.meta.get("profile");
+    await db.meta.put({
+      key: "profile",
+      value: {
+        ...((current?.value as Record<string, unknown> | undefined) ?? {}),
+        dailyDigestEnabled: enabled,
+        dailyDigestTime: localTime,
+      },
+    });
+  }
+
+  async function enableDailySummary() {
+    try {
+      await enablePush(userId);
+      await saveDailySummaryPreferences(true, dailyDigestTime);
+      await cacheDailySummary(true, dailyDigestTime);
+      setDigestEnabled(true);
+      setPushStatus("enabled");
+      setMessage(
+        `Daily app summary enabled for ${dailyDigestTime}. No email will be sent.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not enable notifications.",
+      );
+    }
+  }
+
+  async function saveDailySummaryTime() {
+    try {
+      await saveDailySummaryPreferences(dailyDigestEnabled, dailyDigestTime);
+      await cacheDailySummary(dailyDigestEnabled, dailyDigestTime);
+      setMessage(`Daily summary time saved for ${dailyDigestTime}.`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save notification time.",
+      );
+    }
+  }
+
+  async function disableDailySummary() {
+    try {
+      await saveDailySummaryPreferences(false, dailyDigestTime);
+      await cacheDailySummary(false, dailyDigestTime);
+      setDigestEnabled(false);
+      setMessage("Daily app summary disabled.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not disable notifications.",
+      );
+    }
+  }
+
+  async function installApp() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === "accepted") {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setMessage(
+        "NestList installed. Enable the daily summary when you are ready.",
+      );
+    }
   }
 
   return (
@@ -655,26 +971,67 @@ export function SettingsPanel({
       </article>
       <article className="feature-card">
         <h2>Notifications</h2>
-        <p>Enable reminders only on devices where you want them.</p>
+        <div className="notification-status-row">
+          <span className={`notification-state state-${pushStatus}`}>
+            <span />
+            {pushStatus === "enabled"
+              ? "Enabled on this device"
+              : pushStatus === "blocked"
+                ? "Blocked in browser settings"
+                : pushStatus === "unsupported"
+                  ? "Not supported on this device"
+                  : "Ready to enable"}
+          </span>
+          <span className="install-state">
+            {installed ? "Installed app" : "Browser mode"}
+          </span>
+        </div>
+        <p>
+          Receive one app notification with all open tasks planned for that day.
+          This uses the installed PWA and never sends a Gmail message.
+        </p>
+        <label>
+          Daily summary time
+          <input
+            type="time"
+            value={dailyDigestTime}
+            onChange={(event) => setDigestTime(event.target.value)}
+            disabled={pushStatus === "unsupported"}
+          />
+        </label>
+        {!installed && (
+          <p className="notification-hint">
+            Install NestList for the most app-like experience. On iPhone and
+            iPad, installation on the Home Screen is required for web push.
+          </p>
+        )}
         <div className="card-actions">
+          {!installed && installPrompt && (
+            <button className="subtle-button" onClick={installApp}>
+              <Download size={15} /> Install app
+            </button>
+          )}
           <button
             className="button"
-            onClick={() =>
-              enablePush(userId)
-                .then(() => setMessage("Reminders enabled."))
-                .catch((error) => setMessage(error.message))
+            onClick={
+              pushStatus === "enabled" && dailyDigestEnabled
+                ? saveDailySummaryTime
+                : enableDailySummary
             }
+            disabled={pushStatus === "unsupported" || pushStatus === "blocked"}
           >
-            <Bell size={15} /> Enable
+            <Bell size={15} />{" "}
+            {pushStatus !== "enabled"
+              ? "Enable on this device"
+              : dailyDigestEnabled
+                ? "Save time"
+                : "Enable daily summary"}
           </button>
-          <button
-            className="subtle-button"
-            onClick={() =>
-              disablePush().then(() => setMessage("Reminders disabled."))
-            }
-          >
-            Disable
-          </button>
+          {dailyDigestEnabled && (
+            <button className="subtle-button" onClick={disableDailySummary}>
+              Disable daily summary
+            </button>
+          )}
         </div>
       </article>
       <article className="feature-card">

@@ -1,145 +1,345 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  ArrowRight,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Mail,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 
+type MessageKind = "error" | "info" | "success";
+
+function safeNextPath() {
+  const requested =
+    new URLSearchParams(location.search).get("next") || "/today";
+  return requested.startsWith("/") && !requested.startsWith("//")
+    ? requested
+    : "/today";
+}
+
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [messageKind, setMessageKind] = useState<MessageKind>("info");
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const oauthStarted = useRef(false);
   const configured = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   );
 
-  async function submit(mode: "signin" | "signup") {
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const next = safeNextPath();
+
+    if (configured) {
+      void createClient()
+        .auth.getUser()
+        .then(({ data }) => {
+          if (data.user) location.replace(next);
+        })
+        .catch(() => undefined);
+    }
+
+    if (params.get("session") === "cleared") {
+      setMessage(
+        "Old local sign-in cookies were cleared. You can sign in now.",
+      );
+      setMessageKind("success");
+      return;
+    }
+    if (params.get("error") !== "auth") return;
+    const reason = params.get("reason");
+    setMessageKind("error");
+    if (reason === "missing_verifier")
+      setMessage(
+        "That sign-in link was opened in a different browser or the request is no longer available. Request a fresh link below.",
+      );
+    else if (reason === "expired_code")
+      setMessage(
+        "That sign-in link has expired or was already used. Request a new one.",
+      );
+    else if (reason === "google_not_enabled")
+      setMessage(
+        "Google sign-in is not enabled in Supabase yet. Enable the Google provider and try again.",
+      );
+    else if (reason === "google_cancelled")
+      setMessage("Google sign-in was cancelled. You can try again below.");
+    else if (reason === "oauth_failed")
+      setMessage(
+        "Google could not complete sign-in. Check its Supabase provider settings and try again.",
+      );
+    else if (reason === "configuration")
+      setMessage("Supabase authentication is not configured correctly.");
+    else
+      setMessage(
+        "The sign-in link could not be completed. Request a fresh link.",
+      );
+  }, [configured]);
+
+  async function continueWithEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setBusy(true);
+    setSent(false);
     setMessage("");
+
     try {
-      const supabase = createClient();
-      const result =
-        mode === "signin"
-          ? await supabase.auth.signInWithPassword({ email, password })
-          : await supabase.auth.signUp({
-              email,
-              password,
-              options: { emailRedirectTo: `${location.origin}/auth/callback` },
-            });
-      if (result.error) throw result.error;
-      if (mode === "signup" && !result.data.session)
-        setMessage("Check your email to confirm your account, then sign in.");
-      else
-        router.replace(
-          new URLSearchParams(location.search).get("next") || "/today",
-        );
+      const normalizedEmail = email.trim().toLowerCase();
+      const next = safeNextPath();
+      const { error } = await createClient().auth.signInWithOtp({
+        email: normalizedEmail,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: `${location.origin}/auth/confirm?next=${encodeURIComponent(next)}`,
+        },
+      });
+      if (error) throw error;
+
+      setSent(true);
+      setMessageKind("success");
+      setMessage(
+        `A secure sign-in link was sent to ${normalizedEmail}. If this email is new, its NestList account has been created automatically.`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Sign-in failed.");
+      setMessageKind("error");
+      setMessage(
+        error instanceof Error ? error.message : "The email could not be sent.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function google() {
+    if (oauthStarted.current) return;
+    oauthStarted.current = true;
+    setBusy(true);
+    setSent(false);
+    setMessage("");
     try {
-      const supabase = createClient();
-      const next = new URLSearchParams(location.search).get("next") || "/today";
-      const { error } = await supabase.auth.signInWithOAuth({
+      const next = safeNextPath();
+      const { data, error } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          redirectTo: `${location.origin}/auth/callback?provider=google&next=${encodeURIComponent(next)}`,
+          skipBrowserRedirect: true,
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
       if (error) throw error;
+      if (!data.url) throw new Error("Google sign-in could not be started.");
+      location.assign(data.url);
     } catch (error) {
+      oauthStarted.current = false;
+      setBusy(false);
+      setMessageKind("error");
       setMessage(
         error instanceof Error ? error.message : "Google sign-in failed.",
       );
     }
   }
 
-  async function resetPassword() {
-    if (!email) return setMessage("Enter your email first.");
-    const { error } = await createClient().auth.resetPasswordForEmail(email, {
-      redirectTo: `${location.origin}/auth/callback?next=/reset-password`,
-    });
-    setMessage(
-      error ? error.message : "Check your email for a password reset link.",
-    );
-  }
-
   return (
-    <main className="auth-wrap">
-      <section className="auth-card">
-        <div className="brand">
-          <span className="brand-mark">≋</span>
-          <span>NestList</span>
-        </div>
-        <h1>Make room for what matters.</h1>
-        <p>
-          Sign in to bring your plans with you. After the first sync, your
-          personal tasks stay available offline.
-        </p>
-        <label>
-          Email
-          <input
-            autoComplete="email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            autoComplete="current-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
-        <button
-          className="button"
-          disabled={!configured || busy || !email || !password}
-          onClick={() => submit("signin")}
+    <main className="auth-wrap login-page">
+      <div className="login-background" aria-hidden="true">
+        <span className="login-orb login-orb-one" />
+        <span className="login-orb login-orb-two" />
+        <span className="login-grid" />
+      </div>
+
+      <div className="login-layout">
+        <section
+          className="login-showcase"
+          aria-label="NestList planner preview"
         >
-          {busy ? "Please wait…" : "Sign in"}
-        </button>
-        <button
-          className="subtle-button"
-          disabled={!configured || busy || !email || password.length < 8}
-          onClick={() => submit("signup")}
-        >
-          Create an account
-        </button>
-        <button
-          className="subtle-button"
-          disabled={!configured || busy}
-          onClick={google}
-        >
-          Continue with Google
-        </button>
-        <button
-          className="subtle-button"
-          disabled={!configured || busy || !email}
-          onClick={resetPassword}
-        >
-          Forgot password
-        </button>
-        {!configured && (
-          <div className="toast">
-            Add the Supabase URL and publishable key from your Supabase project
-            to <code>.env.local</code>.
+          <div className="login-kicker">
+            <Sparkles size={15} />
+            Calm planning for busy days
           </div>
-        )}
-        {message && (
-          <div className="toast" role="status">
-            {message}
+          <h1>Your day, beautifully in sync.</h1>
+          <p>
+            Plan personal tasks, build routines, and coordinate shared lists in
+            one focused space.
+          </p>
+
+          <div className="planner-preview">
+            <div className="preview-topbar">
+              <div className="preview-window-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="preview-date">
+                <CalendarDays size={14} /> Friday, October 23
+              </div>
+              <div className="preview-avatars">
+                <span>AS</span>
+                <span>RK</span>
+              </div>
+            </div>
+
+            <div className="preview-body">
+              <div className="preview-heading">
+                <div>
+                  <span>Today</span>
+                  <strong>Make space for what matters.</strong>
+                </div>
+                <span className="preview-count">3 of 5 done</span>
+              </div>
+
+              <div className="preview-progress">
+                <span />
+              </div>
+
+              <div className="preview-tasks">
+                <div className="preview-task complete">
+                  <span className="preview-check">
+                    <Check size={13} />
+                  </span>
+                  <span>Morning focus routine</span>
+                  <small>08:00</small>
+                </div>
+                <div className="preview-task complete">
+                  <span className="preview-check">
+                    <Check size={13} />
+                  </span>
+                  <span>Review shared project plan</span>
+                  <small>10:30</small>
+                </div>
+                <div className="preview-task">
+                  <span className="preview-check" />
+                  <span>Prepare tomorrow&apos;s priorities</span>
+                  <small>18:00</small>
+                </div>
+              </div>
+
+              <div className="preview-footer-cards">
+                <div>
+                  <span className="preview-icon purple">
+                    <Clock3 size={15} />
+                  </span>
+                  <p>
+                    <strong>12 day</strong> routine streak
+                  </p>
+                </div>
+                <div>
+                  <span className="preview-icon cyan">
+                    <UsersRound size={15} />
+                  </span>
+                  <p>
+                    <strong>4 people</strong> in Home circle
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </section>
+
+          <div className="login-benefits">
+            <span>
+              <CheckCircle2 size={15} /> Works offline
+            </span>
+            <span>
+              <CheckCircle2 size={15} /> Shared in real time
+            </span>
+            <span>
+              <CheckCircle2 size={15} /> Gentle reminders
+            </span>
+          </div>
+        </section>
+
+        <section className="auth-card login-card">
+          <div className="brand">
+            <span className="brand-mark">≋</span>
+            <span>NestList</span>
+          </div>
+
+          <div className="login-card-copy">
+            <span className="login-card-eyebrow">Welcome</span>
+            <h2>Start with your email</h2>
+            <p>
+              We&apos;ll send you a secure one-time link. New emails get an
+              account automatically.
+            </p>
+          </div>
+
+          <form className="email-login-form" onSubmit={continueWithEmail}>
+            <label htmlFor="login-email">Email address</label>
+            <div className="auth-input-shell">
+              <Mail size={18} aria-hidden="true" />
+              <input
+                id="login-email"
+                autoComplete="email"
+                inputMode="email"
+                required
+                type="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setSent(false);
+                }}
+                placeholder="you@example.com"
+              />
+            </div>
+            <button
+              className="button email-continue"
+              type="submit"
+              disabled={!configured || busy}
+            >
+              <span>
+                {busy
+                  ? "Sending secure link…"
+                  : sent
+                    ? "Send another link"
+                    : "Continue with email"}
+              </span>
+              {!busy && <ArrowRight size={17} />}
+            </button>
+          </form>
+
+          <div className="auth-divider">
+            <span>or</span>
+          </div>
+
+          <button
+            className="subtle-button google-button"
+            type="button"
+            disabled={!configured || busy}
+            onClick={google}
+          >
+            <span className="google-mark">G</span>
+            Continue with Google
+          </button>
+
+          <div className="login-security-note">
+            <ShieldCheck size={16} />
+            <span>
+              No password to remember. Each email link can be used once.
+            </span>
+          </div>
+
+          {!configured && (
+            <div className="auth-feedback error">
+              Add the Supabase URL and publishable key to{" "}
+              <code>.env.local</code>.
+            </div>
+          )}
+          {message && (
+            <div className={`auth-feedback ${messageKind}`} role="status">
+              {message}
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }

@@ -46,8 +46,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="hostname passed to Next.js (default: 127.0.0.1)",
+        default="localhost",
+        help="hostname passed to Next.js (default: localhost)",
     )
     parser.add_argument(
         "--port",
@@ -126,8 +126,7 @@ def start_supabase() -> None:
 
 
 def run_app(npm: str, host: str, port: int) -> int:
-    url_host = "localhost" if host in {"0.0.0.0", "127.0.0.1"} else host
-    print(f"Starting NestList at http://{url_host}:{port}")
+    print(f"Starting NestList at http://{host}:{port}")
     command = [npm, "run", "dev", "--", "--hostname", host, "--port", str(port)]
     return subprocess.run(command, cwd=PROJECT_ROOT).returncode
 

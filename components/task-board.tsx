@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, Check, MoreHorizontal, Plus, X } from "lucide-react";
+import {
+  CalendarPlus,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Plus,
+  X,
+} from "lucide-react";
 import {
   CirclesPanel,
   PostponementReview,
@@ -42,6 +50,46 @@ function dateTimeLocalValue(iso: string | null) {
     .toISOString()
     .slice(0, 16);
 }
+
+function dateFromKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function nextDateKey(key: string) {
+  const date = dateFromKey(key);
+  date.setDate(date.getDate() + 1);
+  return localDate(date);
+}
+
+function googleCalendarUrl(task: LocalTask) {
+  if (!task.scheduledDate) return "";
+  const start = task.scheduledDate.replaceAll("-", "");
+  const end = nextDateKey(task.scheduledDate).replaceAll("-", "");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: task.title,
+    dates: `${start}/${end}`,
+  });
+  if (task.notes) params.set("details", task.notes);
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function escapeIcs(value: string) {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,")
+    .replaceAll("\n", "\\n");
+}
+
+const monthNames = Array.from({ length: 12 }, (_, month) =>
+  new Intl.DateTimeFormat(undefined, { month: "long" }).format(
+    new Date(2024, month, 1),
+  ),
+);
+
+const calendarYears = Array.from({ length: 131 }, (_, index) => 1970 + index);
 
 export function TaskBoard({
   userId,
@@ -94,6 +142,7 @@ export function TaskBoard({
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [effortFilter, setEffortFilter] = useState("all");
@@ -103,6 +152,13 @@ export function TaskBoard({
   const [creatorFilter, setCreatorFilter] = useState("all");
   const [selectedTask, setSelectedTask] = useState<LocalTask | null>(null);
   const [selectedLater, setSelectedLater] = useState<string[]>([]);
+  const [plannedDate, setPlannedDate] = useState(() => localDate(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const date = new Date();
+    date.setDate(1);
+    date.setHours(12, 0, 0, 0);
+    return date;
+  });
   const personalSpace = spaces.find((space) => space.kind === "personal");
   const inbox =
     lists.find((list) => list.spaceId === personalSpace?.id) ?? null;
@@ -152,15 +208,20 @@ export function TaskBoard({
     }
     void bootstrap();
     const trigger = () => {
+      setOnline(navigator.onLine);
       if (navigator.onLine)
         void syncNow(userId, getDeviceId(userId)).catch(() => undefined);
     };
+    const markOffline = () => setOnline(false);
+    setOnline(navigator.onLine);
     window.addEventListener("online", trigger);
+    window.addEventListener("offline", markOffline);
     window.addEventListener("focus", trigger);
     const interval = window.setInterval(trigger, 30_000);
     return () => {
       active = false;
       window.removeEventListener("online", trigger);
+      window.removeEventListener("offline", markOffline);
       window.removeEventListener("focus", trigger);
       window.clearInterval(interval);
     };
@@ -203,7 +264,7 @@ export function TaskBoard({
           if (view === "planned")
             return (
               task.status === "open" &&
-              Boolean(task.scheduledDate && task.scheduledDate > today)
+              Boolean(task.scheduledDate && task.scheduledDate >= today)
             );
           if (view === "later")
             return task.status === "open" && task.bucket === "later";
@@ -287,14 +348,12 @@ export function TaskBoard({
       const parsed = parseTask(draft, new Date(), candidates);
       if (parsed.ambiguousAssignee)
         throw new Error(`Choose one member for @${parsed.ambiguousAssignee}.`);
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
       const scheduledDate =
         parsed.scheduledDate ??
         (view === "today"
           ? today
           : view === "planned"
-            ? localDate(tomorrow)
+            ? plannedDate
             : null);
       let targetListId = personalIds.inboxId;
       if (parsed.list) {
@@ -375,29 +434,101 @@ export function TaskBoard({
     search: "Find a task.",
     settings: "Your space, your way.",
   };
-  const nextSevenDays = Array.from({ length: 7 }, (_, offset) => {
-    const date = new Date();
-    date.setDate(date.getDate() + offset + 1);
-    return {
-      key: localDate(date),
-      label: new Intl.DateTimeFormat(undefined, {
-        weekday: "short",
-        day: "numeric",
-      }).format(date),
-    };
-  });
+  const calendarDays = useMemo(() => {
+    const first = new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      1,
+      12,
+    );
+    const gridStart = new Date(first);
+    gridStart.setDate(first.getDate() - first.getDay());
+    return Array.from({ length: 42 }, (_, offset) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + offset);
+      const key = localDate(date);
+      return {
+        date,
+        key,
+        inMonth: date.getMonth() === calendarMonth.getMonth(),
+        tasks: visible.filter((task) => task.scheduledDate === key),
+      };
+    });
+  }, [calendarMonth, visible]);
+  const plannedDateTasks = visible.filter(
+    (task) => task.scheduledDate === plannedDate,
+  );
+  const plannedDateLabel = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(dateFromKey(plannedDate));
+
+  function openGoogleCalendar(task: LocalTask) {
+    const url = googleCalendarUrl(task);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function exportPlannedCalendar() {
+    if (!visible.length) return;
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0];
+    const events = visible
+      .filter((task) => task.scheduledDate)
+      .map((task) => {
+        const start = task.scheduledDate!.replaceAll("-", "");
+        const end = nextDateKey(task.scheduledDate!).replaceAll("-", "");
+        return [
+          "BEGIN:VEVENT",
+          `UID:${task.id}@nestlist.app`,
+          `DTSTAMP:${stamp}Z`,
+          `DTSTART;VALUE=DATE:${start}`,
+          `DTEND;VALUE=DATE:${end}`,
+          `SUMMARY:${escapeIcs(task.title)}`,
+          ...(task.notes ? [`DESCRIPTION:${escapeIcs(task.notes)}`] : []),
+          "END:VEVENT",
+        ].join("\r\n");
+      });
+    const calendar = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//NestList//Planned Tasks//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      ...events,
+      "END:VCALENDAR",
+      "",
+    ].join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob([calendar], { type: "text/calendar" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "nestlist-planned.ics";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setMessage(
+      "Calendar file downloaded. Import it from Google Calendar → Settings → Import & export.",
+    );
+  }
   const syncLabel =
-    typeof navigator !== "undefined" && !navigator.onLine
+    !online
       ? `Offline — ${pending} change${pending === 1 ? "" : "s"} saved`
       : syncState?.status === "syncing"
         ? "Syncing"
         : pending
           ? `${pending} changes waiting`
           : "Synced";
-  const renderRows = (rows: LocalTask[], selectable = false) => (
+  const renderRows = (
+    rows: LocalTask[],
+    selectable = false,
+    showGoogleCalendar = false,
+  ) => (
     <div className="task-list">
       {rows.map((task) => (
-        <div className="task-row" key={task.id}>
+        <div
+          className={`task-row ${task.status === "completed" ? "completed" : ""}`}
+          key={task.id}
+        >
           {selectable && (
             <input
               type="checkbox"
@@ -414,7 +545,7 @@ export function TaskBoard({
           )}
           <button
             className={`task-check ${task.status === "completed" ? "done" : ""}`}
-            aria-label={`Complete ${task.title}`}
+            aria-label={`${task.status === "completed" ? "Reopen" : "Complete"} ${task.title}`}
             onClick={() =>
               completeTask(userId, task, task.status !== "completed")
             }
@@ -425,7 +556,11 @@ export function TaskBoard({
             className="task-content"
             onClick={() => setSelectedTask(task)}
           >
-            <span className="task-title">{task.title}</span>
+            <span
+              className={`task-title ${task.status === "completed" ? "done" : ""}`}
+            >
+              {task.title}
+            </span>
             <span className="task-meta">
               {task.scheduledDate ?? "Later"}
               {task.remindAt ? " · reminder" : ""}
@@ -434,6 +569,17 @@ export function TaskBoard({
           <span className="effort">
             {task.effort} · {effortPoints[task.effort]}
           </span>
+          {showGoogleCalendar && task.scheduledDate && (
+            <button
+              type="button"
+              className="icon-button google-calendar-button"
+              onClick={() => openGoogleCalendar(task)}
+              aria-label={`Add ${task.title} to Google Calendar`}
+              title="Add to Google Calendar"
+            >
+              <CalendarPlus size={17} />
+            </button>
+          )}
           <button
             className="icon-button"
             onClick={() => setSelectedTask(task)}
@@ -600,21 +746,188 @@ export function TaskBoard({
         </div>
       )}
       {view === "planned" && (
-        <div className="week-strip" aria-label="Next seven days">
-          {nextSevenDays.map((day) => (
-            <div key={day.key}>
-              <strong>{day.label}</strong>
-              <span>
-                {
-                  tasks.filter(
-                    (task) =>
-                      task.status === "open" && task.scheduledDate === day.key,
-                  ).length
+        <section className="calendar-shell" aria-label="Planned task calendar">
+          <div className="calendar-toolbar">
+            <div className="calendar-nav">
+              <button
+                type="button"
+                className="subtle-button calendar-today"
+                onClick={() => {
+                  const date = new Date();
+                  date.setHours(12, 0, 0, 0);
+                  setCalendarMonth(
+                    new Date(date.getFullYear(), date.getMonth(), 1, 12),
+                  );
+                  setPlannedDate(today);
+                }}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() =>
+                  setCalendarMonth(
+                    new Date(
+                      calendarMonth.getFullYear(),
+                      calendarMonth.getMonth() - 1,
+                      1,
+                      12,
+                    ),
+                  )
                 }
-              </span>
+                aria-label="Previous month"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() =>
+                  setCalendarMonth(
+                    new Date(
+                      calendarMonth.getFullYear(),
+                      calendarMonth.getMonth() + 1,
+                      1,
+                      12,
+                    ),
+                  )
+                }
+                aria-label="Next month"
+              >
+                <ChevronRight size={18} />
+              </button>
             </div>
-          ))}
-        </div>
+            <div
+              className="calendar-period"
+              aria-label="Calendar month and year"
+            >
+              <select
+                value={calendarMonth.getMonth()}
+                onChange={(event) =>
+                  setCalendarMonth(
+                    new Date(
+                      calendarMonth.getFullYear(),
+                      Number(event.target.value),
+                      1,
+                      12,
+                    ),
+                  )
+                }
+                aria-label="Choose month"
+              >
+                {monthNames.map((month, index) => (
+                  <option value={index} key={month}>
+                    {month}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={calendarMonth.getFullYear()}
+                onChange={(event) =>
+                  setCalendarMonth(
+                    new Date(
+                      Number(event.target.value),
+                      calendarMonth.getMonth(),
+                      1,
+                      12,
+                    ),
+                  )
+                }
+                aria-label="Choose year"
+              >
+                {calendarYears.map((year) => (
+                  <option value={year} key={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="calendar-toolbar-actions">
+              <button
+                type="button"
+                className="subtle-button calendar-export"
+                onClick={exportPlannedCalendar}
+                disabled={!visible.length}
+                title="Download all planned tasks for Google Calendar"
+              >
+                <CalendarPlus size={15} />
+                Export to Google Calendar
+              </button>
+              <span className="calendar-total">{visible.length} planned</span>
+            </div>
+          </div>
+          <div className="calendar-scroll">
+            <div className="calendar-grid">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                (day) => (
+                  <div className="calendar-weekday" key={day}>
+                    {day}
+                  </div>
+                ),
+              )}
+              {calendarDays.map((day) => (
+                <div
+                  className={`calendar-day ${day.inMonth ? "" : "outside"} ${day.key === today ? "is-today" : ""} ${day.key === plannedDate ? "selected" : ""}`}
+                  key={day.key}
+                >
+                  <div className="calendar-day-head">
+                    <button
+                      type="button"
+                      className="calendar-date"
+                      onClick={() => {
+                        if (day.key >= today) setPlannedDate(day.key);
+                      }}
+                      disabled={day.key < today}
+                      aria-label={`Show tasks for ${new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric" }).format(day.date)}`}
+                    >
+                      {day.date.getDate()}
+                    </button>
+                    {day.key >= today && (
+                      <button
+                        type="button"
+                        className="calendar-add"
+                        onClick={() => {
+                          setPlannedDate(day.key);
+                          setEditing(true);
+                        }}
+                        aria-label={`Add task on ${new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric" }).format(day.date)}`}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="calendar-events">
+                    {day.tasks.slice(0, 3).map((task) => (
+                      <button
+                        type="button"
+                        className={`calendar-event effort-${task.effort}`}
+                        key={task.id}
+                        onClick={() => {
+                          setPlannedDate(day.key);
+                          setSelectedTask(task);
+                        }}
+                        title={task.title}
+                      >
+                        <span className="calendar-event-dot" />
+                        <span>{task.title}</span>
+                      </button>
+                    ))}
+                    {day.tasks.length > 3 && (
+                      <button
+                        type="button"
+                        className="calendar-more"
+                        onClick={() => setPlannedDate(day.key)}
+                      >
+                        +{day.tasks.length - 3} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
       {["today", "planned", "later", "search"].includes(view) && (
         <>
@@ -633,7 +946,19 @@ export function TaskBoard({
               <RoutinesPanel
                 userId={userId}
                 personalSpaceId={personalIds?.id ?? null}
+                allowDelete
               />
+            </>
+          ) : view === "planned" ? (
+            <>
+              <div className="section-head planned-agenda-head">
+                <div>
+                  <span className="section-eyebrow">Selected day</span>
+                  <h2>{plannedDateLabel}</h2>
+                </div>
+                <span>{plannedDateTasks.length}</span>
+              </div>
+              {renderRows(plannedDateTasks, false, true)}
             </>
           ) : (
             <>
@@ -656,7 +981,10 @@ export function TaskBoard({
           {view !== "search" &&
             (!editing ? (
               <button className="quick-add" onClick={() => setEditing(true)}>
-                <Plus size={17} /> Add a task or describe it naturally
+                <Plus size={17} />
+                {view === "planned"
+                  ? `Add a task on ${plannedDateLabel}`
+                  : "Add a task or describe it naturally"}
               </button>
             ) : (
               <form className="composer" onSubmit={submit}>

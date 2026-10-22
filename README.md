@@ -25,8 +25,9 @@ Use `python3 run.py --with-supabase` to start the local Supabase stack first. Do
 1. Copy `.env.example` to `.env.local`. Use `supabase status` for the local API URL and publishable key, or use the target project's API settings. Never place the secret key in a public variable.
 2. Run `npm install`.
 3. Start Docker Desktop, then run `npm run supabase:start`, `npm run db:reset`, and `npm run db:test`.
-4. Run `npm run dev` and open `http://localhost:3000`.
-5. For Google sign-in, enable the provider in Supabase and add `http://localhost:3000/auth/callback` to the redirect allowlist. For password recovery, allow the same callback URL so its next path can open `/reset-password`.
+4. Run `npm run dev -- --hostname localhost` and open `http://localhost:3000`.
+5. Add `http://localhost:3000/auth/callback` and `http://localhost:3000/auth/confirm` to the Supabase Auth redirect allowlist. Email sign-in uses a one-time link and creates new users automatically. In the Supabase **Magic Link** email template, use `<a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Sign in to NestList</a>` so SSR can establish the session even when the link opens in another browser.
+6. For Google sign-in with hosted Supabase, create a **Web application** OAuth client in Google Auth Platform. Add `http://localhost:3000` as an Authorized JavaScript origin. Add the exact Supabase callback shown on the Supabase Google provider page as an Authorized redirect URI; it has the form `https://<project-ref>.supabase.co/auth/v1/callback`. Then enter the Google Client ID and Client Secret in **Supabase Dashboard → Authentication → Providers → Google** and turn the provider on. Keep the app callback URLs from step 5 in **Supabase Dashboard → Authentication → URL Configuration**. The Google redirect must go through the hosted Supabase domain even though the application itself consistently uses `localhost`.
 
 The first authenticated load calls `bootstrap_user()`, which idempotently creates a profile, device, personal space, owner membership, and Inbox. One successful hydration unlocks that account's offline workspace.
 
@@ -41,9 +42,15 @@ The first authenticated load calls `bootstrap_user()`, which idempotently create
 
 Generate a VAPID key pair and store the public key in `NEXT_PUBLIC_VAPID_PUBLIC_KEY`; keep the private key and subject in Edge Function secrets. Deploy `send-reminders`, `send-circle-invite`, and `push-notification`. Add `project_url` and `cron_shared_secret` to Supabase Vault, then run `supabase/cron/setup.sql` once in the target environment. Cron calls `send-reminders` each minute, extends every active recurring series to a rolling 60-day horizon daily, and runs retention maintenance daily. The delivery ledger, row locks, and unique key keep retries idempotent.
 
+In Settings, a user can install NestList and enable a daily task summary at a chosen local time. The scheduled function groups every open task planned for that local date into one Web Push notification and sends it to the user’s subscribed devices, including an installed PWA while it is closed and online. This notification path uses VAPID Web Push only; SMTP and Gmail are used only for optional Circle invitation emails.
+
 Set these Edge Function secrets in the Supabase project: `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `CRON_SHARED_SECRET`, and optionally `EMAIL_WEBHOOK_URL` plus `EMAIL_WEBHOOK_SECRET`. Supabase supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to deployed functions. Store the same cron secret as Vault secret `cron_shared_secret`, and store the project API URL as Vault secret `project_url`.
 
-Email delivery uses an optional authenticated `EMAIL_WEBHOOK_URL`. Without it, Circle invitation links are still created and copied for manual sharing.
+Email delivery uses an optional authenticated `EMAIL_WEBHOOK_URL`. This app includes a receiver at `/api/webhooks/email` that sends valid messages through SMTP. For Gmail, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER` to the complete Gmail address, and `SMTP_PASSWORD` to a Google App Password. `EMAIL_FROM_ADDRESS` is optional and defaults to `NestList <SMTP_USER>`. Point the Edge Function's `EMAIL_WEBHOOK_URL` to the deployed receiver URL; for local Docker-based Supabase development on macOS, use `http://host.docker.internal:3000/api/webhooks/email`. Generate one `EMAIL_WEBHOOK_SECRET` and give the same value to both runtimes. Without email delivery, Circle invitation links are still created and copied for manual sharing.
+
+For local Gmail setup without placing the App Password in shell history, run `python3 scripts/configure_email.py`, then restart the app.
+
+If localhost returns HTTP 431 after repeated authentication attempts, restart with `python3 run.py`, open `http://localhost:3000/auth/clear-local` once, and sign in again. This recovery route removes accumulated localhost Supabase auth cookies. NestList uses its own `nestlist-auth` cookie name to prevent new sessions from creating project-ref cookie variants.
 
 ## Deployment
 

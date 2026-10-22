@@ -1,15 +1,13 @@
 import { TaskBoardLoader } from "@/components/task-board-loader";
-import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/require-user";
 
 export default async function RoutinesPage() {
-  const {
-    data: { user },
-  } = await (await createClient()).auth.getUser();
+  const user = await requireUser("/routines");
   return (
     <TaskBoardLoader
-      userId={user!.id}
+      userId={user.id}
       displayName={
-        user!.user_metadata?.full_name ?? user!.email?.split("@")[0] ?? "there"
+        user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "there"
       }
       view="routines"
     />

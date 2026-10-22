@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -41,10 +41,7 @@ export function WorkspaceShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [online, setOnline] = useState(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
+  const [online, setOnline] = useState(true);
   const [syncMessage, setSyncMessage] = useState("Synced");
   const [pendingCount, setPendingCount] = useState(0);
   const [signOutBusy, setSignOutBusy] = useState(false);
@@ -65,6 +62,19 @@ export function WorkspaceShell({
     [db],
   );
   const reminderTasks = useMemo(() => reminderRows ?? [], [reminderRows]);
+  const scheduledRows = useLiveQuery(
+    () =>
+      db.tasks
+        .filter(
+          (task) =>
+            task.status === "open" &&
+            Boolean(task.scheduledDate) &&
+            !task._deleted,
+        )
+        .toArray(),
+    [db],
+  );
+  const scheduledTasks = useMemo(() => scheduledRows ?? [], [scheduledRows]);
   const locallyNotified = useRef(new Set<string>());
   const groups = useMemo(
     () => [...new Set(links.map((item) => item.group))],
@@ -88,6 +98,7 @@ export function WorkspaceShell({
             : savedTheme;
     const up = () => setOnline(true);
     const down = () => setOnline(false);
+    setOnline(navigator.onLine);
     const workerMessage = (event: MessageEvent) => {
       if (event.data?.type === "NESTLIST_SYNC")
         void syncNow(userId, getDeviceId(userId));
@@ -160,8 +171,12 @@ export function WorkspaceShell({
     const timer = window.setTimeout(
       async () => {
         locallyNotified.current.add(key);
-        if (Notification.permission !== "granted") return;
-        const registration = await navigator.serviceWorker?.ready;
+        if (
+          !("Notification" in window) ||
+          Notification.permission !== "granted"
+        )
+          return;
+        const registration = await navigator.serviceWorker?.getRegistration();
         await registration?.showNotification("NestList reminder", {
           body: next.title,
           tag: `local-${next.id}`,
@@ -175,6 +190,64 @@ export function WorkspaceShell({
     );
     return () => window.clearTimeout(timer);
   }, [reminderTasks]);
+
+  useEffect(() => {
+    const profile = profileRecord?.value as
+      { dailyDigestEnabled?: boolean; dailyDigestTime?: string } | undefined;
+    if (
+      !profile?.dailyDigestEnabled ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    )
+      return;
+    const time = profile.dailyDigestTime ?? "08:00";
+    const [hours, minutes] = time.split(":").map(Number);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return;
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const todaysTasks = scheduledTasks.filter(
+      (task) => task.scheduledDate === localDate,
+    );
+    if (!todaysTasks.length) return;
+    const storageKey = `nestlist-daily-summary:${userId}:${localDate}`;
+    if (localStorage.getItem(storageKey)) return;
+    const scheduledAt = new Date(now);
+    scheduledAt.setHours(hours, minutes, 0, 0);
+    const timer = window.setTimeout(
+      async () => {
+        const registration = await navigator.serviceWorker?.getRegistration();
+        if (!registration) return;
+        const visibleTitles: string[] = [];
+        for (const task of todaysTasks) {
+          const nextLength =
+            visibleTitles.join("\n").length + task.title.length;
+          if (visibleTitles.length && nextLength > 700) break;
+          visibleTitles.push(`• ${task.title}`);
+        }
+        const remaining = todaysTasks.length - visibleTitles.length;
+        const body = `${visibleTitles.join("\n")}${remaining > 0 ? `\n+${remaining} more` : ""}`;
+        await registration.showNotification(
+          `Today’s plan · ${todaysTasks.length} ${todaysTasks.length === 1 ? "task" : "tasks"}`,
+          {
+            body,
+            icon: "/icons/icon-192.svg",
+            badge: "/icons/icon-192.svg",
+            tag: `daily-summary-${localDate}`,
+            data: { url: "/today", kind: "daily-summary" },
+          },
+        );
+        if ("setAppBadge" in navigator)
+          await (
+            navigator as Navigator & {
+              setAppBadge(count: number): Promise<void>;
+            }
+          ).setAppBadge(todaysTasks.length);
+        localStorage.setItem(storageKey, new Date().toISOString());
+      },
+      Math.max(0, scheduledAt.getTime() - now.getTime()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [profileRecord, scheduledTasks, userId]);
 
   const currentSyncMessage =
     syncState?.status === "syncing"
@@ -234,8 +307,9 @@ export function WorkspaceShell({
         window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
       }
       const supabase = createClient();
-      const subscription = await navigator.serviceWorker?.ready
-        .then((registration) => registration.pushManager?.getSubscription())
+      const subscription = await navigator.serviceWorker
+        ?.getRegistration()
+        .then((registration) => registration?.pushManager?.getSubscription())
         .catch(() => null);
       if (subscription)
         await fetch("/api/push/unsubscribe", {
@@ -250,7 +324,7 @@ export function WorkspaceShell({
       localStorage.removeItem(`nestlist-device-id:${userId}`);
       localStorage.removeItem("nestlist-last-user-id");
       setPendingCount(0);
-      router.replace("/login");
+      window.location.replace("/login");
     } catch (error) {
       setSyncMessage(
         error instanceof Error ? error.message : "Could not sign out.",
@@ -299,22 +373,22 @@ export function WorkspaceShell({
             />
             {online ? currentSyncMessage : "Offline · changes stay here"}
           </div>
-          <button
-            className="user-chip"
-            onClick={signOut}
-            style={{
-              border: 0,
-              background: "transparent",
-              textAlign: "left",
-              color: "inherit",
-            }}
-          >
+          <div className="user-chip">
             <span className="avatar">
               {displayName.slice(0, 1).toUpperCase()}
             </span>
             <span style={{ flex: 1 }}>{displayName}</span>
-            <LogOut size={15} />
-          </button>
+            <button
+              type="button"
+              className="logout-button"
+              onClick={signOut}
+              disabled={signOutBusy}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut size={17} />
+            </button>
+          </div>
         </div>
       </aside>
       <header className="mobile-header">
@@ -323,7 +397,7 @@ export function WorkspaceShell({
           <span>NestList</span>
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ color: "#77817c", fontSize: 11 }}>
+          <span className="mobile-sync">
             <Cloud
               size={15}
               style={{ verticalAlign: "middle", marginRight: 5 }}
@@ -331,9 +405,11 @@ export function WorkspaceShell({
             {online ? "Up to date" : "Offline"}
           </span>
           <button
-            className="subtle-button"
+            className="logout-button mobile-logout"
             onClick={signOut}
+            disabled={signOutBusy}
             aria-label="Sign out"
+            title="Sign out"
           >
             <LogOut size={16} />
           </button>

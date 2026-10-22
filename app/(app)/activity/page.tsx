@@ -1,9 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
 import { ActivityPanel } from "@/components/activity-panel";
+import { requireUser } from "@/lib/supabase/require-user";
 
 export default async function ActivityPage() {
-  const {
-    data: { user },
-  } = await (await createClient()).auth.getUser();
-  return <ActivityPanel userId={user!.id} />;
+  const user = await requireUser("/activity");
+  return <ActivityPanel userId={user.id} />;
 }

@@ -7,6 +7,7 @@ export async function createClient() {
   if (!url || !key) throw new Error("Supabase is not configured.");
   const cookieStore = await cookies();
   return createServerClient(url, key, {
+    cookieOptions: { name: "nestlist-auth" },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll(cookiesToSet) {

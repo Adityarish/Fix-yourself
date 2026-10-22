@@ -142,3 +142,32 @@ export async function setRoutineCompletion(
     );
   });
 }
+
+export async function deleteRoutine(userId: string, routine: LocalRoutine) {
+  const db = getDatabase(userId);
+  const mutationId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await db.transaction("rw", db.routines, db.outbox, async () => {
+    await db.routines.update(routine.id, {
+      active: false,
+      updatedAt: now,
+      _deleted: true,
+      _syncStatus: "pending",
+      _lastMutationId: mutationId,
+    });
+    await db.outbox.add(
+      createOutboxMutation({
+        userId,
+        spaceId: routine.spaceId,
+        entityType: "routine",
+        entityId: routine.id,
+        operation: "delete",
+        baseVersion: routine._serverVersion || null,
+        mutationId,
+        createdAt: now,
+        patch: {},
+      }),
+    );
+  });
+}
