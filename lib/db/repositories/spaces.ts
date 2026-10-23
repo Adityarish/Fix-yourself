@@ -9,16 +9,13 @@ export interface CircleInviteRequest {
   role: Exclude<MemberRole, "owner">;
   invitedBy: string;
   invitedByName: string;
+  invitedByAvatarUrl: string | null;
   createdAt: string;
   expiresAt: string;
 }
 
 export type CircleInviteStatus =
-  | "pending"
-  | "accepted"
-  | "declined"
-  | "revoked"
-  | "expired";
+  "pending" | "accepted" | "declined" | "revoked" | "expired";
 
 export interface SentCircleInvite {
   id: string;
@@ -60,32 +57,48 @@ export async function createCircleInvite(spaceId: string, email: string) {
 }
 
 export async function listMyCircleInvites() {
-  const { data, error } = await createClient().rpc("list_my_circle_invites");
-  if (error) throw error;
-  return (data ?? []) as CircleInviteRequest[];
+  const response = await fetch("/api/circles/requests", { cache: "no-store" });
+  const payload = (await response.json()) as {
+    invitations?: CircleInviteRequest[];
+    error?: string;
+  };
+  if (!response.ok)
+    throw new Error(payload.error ?? "Could not load Circle invitations.");
+  return payload.invitations ?? [];
 }
 
-export async function respondToCircleInvite(
-  inviteId: string,
-  accept: boolean,
-) {
-  const { data, error } = await createClient().rpc(
-    "respond_to_space_invite",
-    {
-      p_invite_id: z.string().uuid().parse(inviteId),
-      p_accept: accept,
-    },
-  );
-  if (error) throw error;
-  return data as { spaceId: string; status: "accepted" | "declined" };
+export async function respondToCircleInvite(inviteId: string, accept: boolean) {
+  const response = await fetch("/api/circles/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      inviteId: z.string().uuid().parse(inviteId),
+      response: accept ? "accept" : "decline",
+    }),
+  });
+  const payload = (await response.json()) as {
+    spaceId?: string;
+    status?: "accepted" | "declined";
+    error?: string;
+  };
+  if (!response.ok || !payload.spaceId || !payload.status)
+    throw new Error(payload.error ?? "Could not respond to this invitation.");
+  return { spaceId: payload.spaceId, status: payload.status };
 }
 
 export async function listCircleInvites(spaceId: string) {
-  const { data, error } = await createClient().rpc("list_circle_invites", {
-    p_space_id: z.string().uuid().parse(spaceId),
-  });
-  if (error) throw error;
-  return (data ?? []) as SentCircleInvite[];
+  const validSpaceId = z.string().uuid().parse(spaceId);
+  const response = await fetch(
+    `/api/circles/requests?spaceId=${encodeURIComponent(validSpaceId)}`,
+    { cache: "no-store" },
+  );
+  const payload = (await response.json()) as {
+    invitations?: SentCircleInvite[];
+    error?: string;
+  };
+  if (!response.ok)
+    throw new Error(payload.error ?? "Could not load sent invitations.");
+  return payload.invitations ?? [];
 }
 
 export async function removeCircleMember(spaceId: string, memberId: string) {

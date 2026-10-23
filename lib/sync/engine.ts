@@ -206,6 +206,7 @@ async function hydrateSnapshot(
           key: "profile",
           value: {
             displayName: profile.display_name,
+            avatarUrl: profile.avatar_url,
             timezone: profile.timezone,
             defaultCapacity: profile.default_capacity,
             weekStartsOn: profile.week_starts_on,

@@ -20,6 +20,7 @@ import { deleteUserDatabase, getDatabase } from "@/lib/db/client-db";
 import { getDeviceId } from "@/lib/db/repositories/outbox";
 import { createClient } from "@/lib/supabase/browser";
 import { syncNow } from "@/lib/sync/engine";
+import { MemberAvatar } from "@/components/member-avatar";
 
 const links = [
   { href: "/today", label: "Today", icon: Home, group: "PLAN" },
@@ -257,6 +258,11 @@ export function WorkspaceShell({
         : outboxCount
           ? `${outboxCount} saved change${outboxCount === 1 ? "" : "s"}`
           : syncMessage;
+  const currentProfile = profileRecord?.value as
+    | { displayName?: string; avatarUrl?: string }
+    | undefined;
+  const currentDisplayName =
+    currentProfile?.displayName?.trim() || displayName;
 
   async function signOut() {
     try {
@@ -374,10 +380,13 @@ export function WorkspaceShell({
             {online ? currentSyncMessage : "Offline · changes stay here"}
           </div>
           <div className="user-chip">
-            <span className="avatar">
-              {displayName.slice(0, 1).toUpperCase()}
-            </span>
-            <span style={{ flex: 1 }}>{displayName}</span>
+            <MemberAvatar
+              name={currentDisplayName}
+              userId={userId}
+              avatarUrl={currentProfile?.avatarUrl}
+              size="small"
+            />
+            <span style={{ flex: 1 }}>{currentDisplayName}</span>
             <button
               type="button"
               className="logout-button"

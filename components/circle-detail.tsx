@@ -88,8 +88,15 @@ export function CircleDetail({
       .then((invitations) => {
         if (active) setSentInvites(invitations);
       })
-      .catch(() => {
-        if (active) setSentInvites([]);
+      .catch((error) => {
+        if (active) {
+          setSentInvites([]);
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not load sent invitations.",
+          );
+        }
       });
     return () => {
       active = false;
@@ -353,10 +360,14 @@ export function CircleDetail({
                 void createCircleInvite(circleId, email)
                   .then(async (value) => {
                     setEmail("");
+                    if (!value.delivered && value.inviteUrl)
+                      await navigator.clipboard
+                        ?.writeText(value.inviteUrl)
+                        .catch(() => undefined);
                     setMessage(
                       value.delivered
                         ? "Invitation sent."
-                        : `Invite created, but email delivery failed. ${value.deliveryError ?? "Copy and share the invitation link."}`,
+                        : `Invite created and copied, but email delivery failed. ${value.deliveryError ?? "Share the copied invitation link."}`,
                     );
                     setSentInvites(await listCircleInvites(circleId));
                   })
@@ -405,7 +416,8 @@ export function CircleDetail({
                       <strong>{invite.email}</strong>
                       <small>
                         Sent {new Date(invite.createdAt).toLocaleDateString()} ·
-                        expires {new Date(invite.expiresAt).toLocaleDateString()}
+                        expires{" "}
+                        {new Date(invite.expiresAt).toLocaleDateString()}
                       </small>
                     </div>
                     <div className="sent-invite-statuses">

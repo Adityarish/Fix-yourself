@@ -319,7 +319,8 @@ export function TaskBoard({
       (!task.assigneeId || task.assigneeId === userId),
   );
   const profileSettings = profileRecord?.value as
-    { defaultCapacity?: number } | undefined;
+    { defaultCapacity?: number; displayName?: string } | undefined;
+  const activeDisplayName = profileSettings?.displayName?.trim() || displayName;
   const capacity =
     capacityOverride?.capacity ?? profileSettings?.defaultCapacity ?? 8;
   const used = personalIds ? capacityUsed(tasks, today, personalIds.id) : 0;
@@ -614,7 +615,7 @@ export function TaskBoard({
       <h1 className="greeting">{heading[view]}</h1>
       <p className="subtitle">
         {view === "today"
-          ? `A good day starts with one thing, ${displayName}.`
+          ? `A good day starts with one thing, ${activeDisplayName}.`
           : "Keep your plans clear and easy to return to."}
       </p>
       {view === "routines" && (
@@ -627,7 +628,7 @@ export function TaskBoard({
       {view === "settings" && (
         <SettingsPanel
           userId={userId}
-          displayName={displayName}
+          displayName={activeDisplayName}
           personalSpaceId={personalIds?.id ?? null}
         />
       )}

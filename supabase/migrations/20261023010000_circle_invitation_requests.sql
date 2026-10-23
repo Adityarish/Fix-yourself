@@ -40,7 +40,8 @@ begin
   ) then
     raise exception 'only Circle owners and admins can invite' using errcode = '42501';
   end if;
-  if v_email !~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+  if p_email is null
+    or v_email !~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
     raise exception 'invalid email';
   end if;
   if (
@@ -136,6 +137,7 @@ begin
         'role', invite.role,
         'invitedBy', invite.invited_by,
         'invitedByName', coalesce(nullif(trim(profile.display_name), ''), 'A Circle admin'),
+        'invitedByAvatarUrl', profile.avatar_url,
         'createdAt', invite.created_at,
         'expiresAt', invite.expires_at
       ) as item

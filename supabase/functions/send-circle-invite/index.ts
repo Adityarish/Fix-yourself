@@ -13,12 +13,13 @@ Deno.serve(async (request) => {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
-  const { email, inviteUrl, circleName, inviterName } = (await request.json()) as {
-    email?: string;
-    inviteUrl?: string;
-    circleName?: string;
-    inviterName?: string;
-  };
+  const { email, inviteUrl, circleName, inviterName } =
+    (await request.json()) as {
+      email?: string;
+      inviteUrl?: string;
+      circleName?: string;
+      inviterName?: string;
+    };
   if (
     !email ||
     !inviteUrl ||

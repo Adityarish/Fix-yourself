@@ -46,6 +46,10 @@ import { syncNow } from "@/lib/sync/engine";
 import { createClient } from "@/lib/supabase/browser";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
+  defaultAvatarUrl,
+  selectableAvatars,
+} from "@/lib/profile/avatars";
+import {
   isRoutineEligible,
   routineLocalDate,
   routineProgress,
@@ -340,6 +344,13 @@ export function CirclesPanel({ userId }: { userId: string }) {
 
   useEffect(() => {
     void refreshInviteRequests();
+    const refresh = () => void refreshInviteRequests();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+    };
   }, [refreshInviteRequests]);
 
   async function respondToRequest(
@@ -410,7 +421,10 @@ export function CirclesPanel({ userId }: { userId: string }) {
 
   return (
     <section className="feature-stack">
-      <section className="circle-requests" aria-labelledby="circle-requests-title">
+      <section
+        className="circle-requests"
+        aria-labelledby="circle-requests-title"
+      >
         <div className="circle-requests-heading">
           <div>
             <span className="section-eyebrow">Your invitations</span>
@@ -426,6 +440,7 @@ export function CirclesPanel({ userId }: { userId: string }) {
                 <MemberAvatar
                   name={invitation.invitedByName}
                   userId={invitation.invitedBy}
+                  avatarUrl={invitation.invitedByAvatarUrl}
                   size="medium"
                 />
                 <div className="circle-request-copy">
@@ -434,7 +449,8 @@ export function CirclesPanel({ userId }: { userId: string }) {
                     {invitation.invitedByName} invited you as a member
                   </span>
                   <small>
-                    Expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                    Expires{" "}
+                    {new Date(invitation.expiresAt).toLocaleDateString()}
                   </small>
                 </div>
                 <div className="circle-request-actions">
@@ -597,6 +613,7 @@ export function SettingsPanel({
   const profile = savedProfile?.value as
     | {
         displayName?: string;
+        avatarUrl?: string;
         timezone?: string;
         defaultCapacity?: number;
         weekStartsOn?: number;
@@ -607,11 +624,15 @@ export function SettingsPanel({
     | undefined;
   const [capacityEdit, setCapacityEdit] = useState<number | null>(null);
   const [profileNameEdit, setProfileNameEdit] = useState<string | null>(null);
+  const [avatarEdit, setAvatarEdit] = useState<string | null>(null);
   const [timezoneEdit, setTimezoneEdit] = useState<string | null>(null);
   const [weekStartEdit, setWeekStartEdit] = useState<number | null>(null);
   const [themeEdit, setThemeEdit] = useState<string | null>(null);
   const capacity = capacityEdit ?? profile?.defaultCapacity ?? 8;
   const profileName = profileNameEdit ?? profile?.displayName ?? displayName;
+  const avatarOptions = useMemo(() => selectableAvatars(userId), [userId]);
+  const selectedAvatar =
+    avatarEdit ?? profile?.avatarUrl ?? defaultAvatarUrl(userId);
   const timezone =
     timezoneEdit ??
     profile?.timezone ??
@@ -787,14 +808,23 @@ export function SettingsPanel({
     router.refresh();
   }
   async function saveProfile() {
-    const { error } = await createClient().rpc("update_profile_settings", {
-      p_display_name: profileName,
+    const normalizedName = profileName.trim();
+    if (!normalizedName || normalizedName.length > 120)
+      return setMessage("Display name must be between 1 and 120 characters.");
+    const supabase = createClient();
+    const { error } = await supabase.rpc("update_profile_settings", {
+      p_display_name: normalizedName,
       p_timezone: timezone,
       p_default_capacity: capacity,
       p_week_starts_on: weekStart,
       p_theme: theme,
     });
     if (error) return setMessage(error.message);
+    const { error: identityError } = await supabase
+      .from("profiles")
+      .update({ display_name: normalizedName, avatar_url: selectedAvatar })
+      .eq("id", userId);
+    if (identityError) return setMessage(identityError.message);
     localStorage.setItem("nestlist-theme", theme);
     document.documentElement.dataset.theme =
       theme === "system"
@@ -805,7 +835,8 @@ export function SettingsPanel({
     await db.meta.put({
       key: "profile",
       value: {
-        displayName: profileName,
+        displayName: normalizedName,
+        avatarUrl: selectedAvatar,
         timezone,
         defaultCapacity: capacity,
         weekStartsOn: weekStart,
@@ -814,6 +845,10 @@ export function SettingsPanel({
         dailyDigestTime,
       },
     });
+    setProfileNameEdit(normalizedName);
+    setAvatarEdit(selectedAvatar);
+    await syncNow(userId, getDeviceId(userId));
+    router.refresh();
     setMessage("Profile settings saved.");
   }
 
@@ -894,6 +929,18 @@ export function SettingsPanel({
     <section className="feature-stack settings-grid">
       <article className="feature-card">
         <h2>Profile</h2>
+        <div className="profile-editor-preview">
+          <MemberAvatar
+            name={profileName}
+            userId={userId}
+            avatarUrl={selectedAvatar}
+            size="large"
+          />
+          <div>
+            <strong>{profileName || "Your profile"}</strong>
+            <small>Your avatar appears in every shared Circle.</small>
+          </div>
+        </div>
         <label>
           Display name
           <input
@@ -901,6 +948,29 @@ export function SettingsPanel({
             onChange={(event) => setProfileNameEdit(event.target.value)}
           />
         </label>
+        <fieldset className="avatar-picker">
+          <legend>Choose an avatar</legend>
+          <div className="avatar-options">
+            {avatarOptions.map((avatar) => (
+              <button
+                type="button"
+                key={avatar.id}
+                className={selectedAvatar === avatar.url ? "selected" : ""}
+                aria-label={`Use ${avatar.label} avatar`}
+                aria-pressed={selectedAvatar === avatar.url}
+                onClick={() => setAvatarEdit(avatar.url)}
+              >
+                <MemberAvatar
+                  name={avatar.label}
+                  userId={`${userId}-${avatar.id}`}
+                  avatarUrl={avatar.url}
+                  size="large"
+                />
+                <span>{avatar.label}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <label>
           Timezone
           <input
