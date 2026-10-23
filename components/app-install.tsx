@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Download, X } from "lucide-react";
+import { Download, ExternalLink, X } from "lucide-react";
 import { getPushEnvironment } from "@/lib/notifications/push";
 
 type InstallPrompt = Event & {
@@ -95,17 +95,25 @@ export function AppInstallProvider({ children }: { children: ReactNode }) {
 
   return (
     <InstallContext.Provider value={{ ...environment, openInstall }}>
-      {children}
       {ready && !environment.installed && (
-        <button
-          type="button"
-          className="app-install-launcher"
-          onClick={openInstall}
-        >
-          <Download size={16} aria-hidden="true" />{" "}
-          {hasInstalled ? "Open app" : "Install app"}
-        </button>
+        <header className="app-install-header" aria-label="NestList app">
+          <span className="app-install-header-label">NestList on your device</span>
+          <button
+            type="button"
+            className="app-install-launcher"
+            onClick={openInstall}
+            aria-haspopup="dialog"
+          >
+            {hasInstalled ? (
+              <ExternalLink size={16} aria-hidden="true" />
+            ) : (
+              <Download size={16} aria-hidden="true" />
+            )}
+            {hasInstalled ? "Open app" : "Install app"}
+          </button>
+        </header>
       )}
+      {children}
       <dialog
         ref={dialog}
         className="app-install-dialog"
