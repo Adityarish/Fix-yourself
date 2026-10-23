@@ -16,6 +16,25 @@ import { createClient } from "@/lib/supabase/browser";
 
 type MessageKind = "error" | "info" | "success";
 
+function readableEmailError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : "";
+
+  if (
+    code === "over_email_send_rate_limit" ||
+    /rate limit|too many requests/i.test(message)
+  ) {
+    return "Supabase has temporarily limited sign-in emails. Wait before requesting another message. For production, configure Custom SMTP in Supabase Auth.";
+  }
+  if (/not authorized/i.test(message)) {
+    return "Supabase's test email service only delivers to project team addresses. Configure Custom SMTP in Supabase Auth to send OTPs to every user.";
+  }
+  return message || "The sign-in email could not be sent.";
+}
+
 function safeNextPath() {
   const requested =
     new URLSearchParams(location.search).get("next") || "/today";
@@ -32,6 +51,7 @@ export default function LoginPage() {
   const [messageKind, setMessageKind] = useState<MessageKind>("info");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const oauthStarted = useRef(false);
   const configured = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -102,6 +122,15 @@ export default function LoginPage() {
     };
   }, [configured]);
 
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setTimeout(
+      () => setResendSeconds((seconds) => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
+
   async function continueWithEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -123,15 +152,14 @@ export default function LoginPage() {
       setSent(true);
       setSentEmail(normalizedEmail);
       setOtp("");
+      setResendSeconds(60);
       setMessageKind("success");
       setMessage(
-        `Check ${normalizedEmail}. Open the secure link, or enter the one-time code below without leaving this app.`,
+        `Email requested for ${normalizedEmail}. Delivery can take a minute; check Spam or Promotions too. Enter the code below without leaving this app.`,
       );
     } catch (error) {
       setMessageKind("error");
-      setMessage(
-        error instanceof Error ? error.message : "The email could not be sent.",
-      );
+      setMessage(readableEmailError(error));
     } finally {
       setBusy(false);
     }
@@ -330,6 +358,7 @@ export default function LoginPage() {
                   setSent(false);
                   setSentEmail("");
                   setOtp("");
+                  setResendSeconds(0);
                 }}
                 placeholder="you@example.com"
               />
@@ -337,14 +366,16 @@ export default function LoginPage() {
             <button
               className="button email-continue"
               type="submit"
-              disabled={!configured || busy}
+              disabled={!configured || busy || resendSeconds > 0}
             >
               <span>
                 {busy
                   ? "Sending secure link…"
-                  : sent
-                    ? "Send another link"
-                    : "Continue with email"}
+                  : resendSeconds > 0
+                    ? `Resend available in ${resendSeconds}s`
+                    : sent
+                      ? "Send another link"
+                      : "Continue with email"}
               </span>
               {!busy && <ArrowRight size={17} />}
             </button>
@@ -355,7 +386,10 @@ export default function LoginPage() {
               <div className="email-code-heading">
                 <div>
                   <strong>Enter the code from your email</strong>
-                  <span>This keeps you inside the installed app.</span>
+                  <span>
+                    Look for “Your secure NestList sign-in”. This keeps you
+                    inside the installed app.
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -364,6 +398,7 @@ export default function LoginPage() {
                     setSentEmail("");
                     setOtp("");
                     setMessage("");
+                    setResendSeconds(0);
                   }}
                 >
                   Change email

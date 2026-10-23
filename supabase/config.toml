@@ -18,6 +18,7 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = [
   "http://localhost:3000/auth/callback",
   "http://localhost:3000/auth/confirm",
+  "http://localhost:3000/auth/email-confirm",
 ]
 enable_signup = true
 
@@ -25,6 +26,17 @@ enable_signup = true
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
+
+# Passwordless sign-in can use the confirmation template for a first-time user
+# and the magic-link template for a returning user. Keep both on the same
+# branded link + visible OTP template so the installed PWA behaves identically.
+[auth.email.template.confirmation]
+subject = "Your secure NestList sign-in"
+content_path = "./supabase/email-templates/magic-link.html"
+
+[auth.email.template.magic_link]
+subject = "Your secure NestList sign-in"
+content_path = "./supabase/email-templates/magic-link.html"
 
 [auth.external.google]
 enabled = false
