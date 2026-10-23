@@ -351,8 +351,9 @@ select:focus-visible {
   font-size: 13px;
 }
 .capacity-card {
-  margin: 30px 0;
-  padding: 19px 20px;
+  width: min(100%, 440px);
+  margin: 22px 0;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 16px;
   display: flex;
@@ -383,8 +384,8 @@ select:focus-visible {
   font-size: 13px;
 }
 .capacity-track {
-  width: min(270px, 42vw);
-  height: 9px;
+  width: min(220px, 38vw);
+  height: 8px;
   overflow: hidden;
   border-radius: 99px;
   background: #e7eaf2;
@@ -1881,6 +1882,11 @@ textarea::placeholder {
   font-size: 12px;
   font-weight: 590;
 }
+.feature-card input.capacity-input {
+  width: 8rem;
+  min-height: 40px;
+  padding: 8px 10px;
+}
 fieldset {
   margin: 0;
   padding: 0;
@@ -1952,8 +1958,62 @@ fieldset legend {
   text-decoration-thickness: 1.5px;
   text-decoration-color: var(--success);
 }
-.settings-grid {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+.settings-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.settings-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+@media (max-width: 980px) {
+  .settings-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.settings-compact-card {
+  align-content: start;
+  gap: 9px;
+  padding: 15px 16px;
+}
+.settings-compact-card h2 {
+  font-size: 19px;
+}
+.settings-compact-actions {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.settings-compact-actions label {
+  flex: 0 0 auto;
+}
+.settings-compact-actions .button {
+  min-height: 40px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+.settings-sync-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+.settings-sync-details {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.settings-sync-summary,
+.settings-sync-storage {
+  overflow-wrap: anywhere;
+}
+.settings-sync-card .card-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.settings-sync-card .subtle-button {
+  min-height: 38px;
+  padding: 7px 10px;
 }
 .profile-editor-preview {
   padding: 13px;
@@ -2094,9 +2154,52 @@ fieldset legend {
   align-items: center;
   gap: 10px;
 }
-.calendar-export {
+.calendar-export,
+.calendar-import {
   min-height: 38px;
   white-space: nowrap;
+}
+.calendar-export {
+  min-height: 34px;
+  padding: 6px 9px;
+  gap: 6px;
+  font-size: 11px;
+}
+.calendar-import-preview {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface-soft);
+}
+.calendar-import-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.calendar-import-copy strong,
+.calendar-import-copy span,
+.calendar-import-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-import-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.calendar-import-copy span,
+.calendar-import-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.calendar-import-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .calendar-total {
   justify-self: end;
@@ -2651,6 +2754,18 @@ fieldset legend {
 }
 
 @media (max-width: 960px) {
+  .calendar-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+  .calendar-toolbar-actions {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    flex-wrap: wrap;
+  }
+  .calendar-export {
+    flex: 0 1 auto;
+    width: auto;
+  }
   .login-layout {
     width: min(560px, 100%);
     grid-template-columns: 1fr;
@@ -2676,6 +2791,9 @@ fieldset legend {
 }
 
 @media (max-width: 760px) {
+  .settings-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .app-frame {
     display: block;
   }
@@ -2815,9 +2933,21 @@ fieldset legend {
   .calendar-toolbar-actions {
     grid-column: 1 / -1;
     justify-self: stretch;
+    flex-wrap: wrap;
   }
   .calendar-export {
-    width: 100%;
+    flex: 0 1 auto;
+    width: auto;
+  }
+  .calendar-import-preview {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .calendar-import-copy small {
+    white-space: normal;
+  }
+  .calendar-import-actions > button {
+    flex: 1;
   }
   .calendar-total {
     display: none;

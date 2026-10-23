@@ -262,7 +262,9 @@ export async function POST(request: Request) {
         .eq("id", parsed.data.inviteId)
         .maybeSingle();
       if (legacy.error) throw legacy.error;
-      inviteRow = legacy.data;
+      inviteRow = legacy.data
+        ? { ...legacy.data, declined_at: null }
+        : null;
     } else if (error) {
       throw error;
     }

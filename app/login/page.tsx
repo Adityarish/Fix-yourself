@@ -39,50 +39,65 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const next = safeNextPath();
+    let active = true;
 
-    if (configured) {
-      void createClient()
-        .auth.getUser()
-        .then(({ data }) => {
-          if (data.user) location.replace(next);
-        })
-        .catch(() => undefined);
+    async function finishAuthentication() {
+      if (configured) {
+        try {
+          const {
+            data: { user },
+          } = await createClient().auth.getUser();
+          if (!active) return;
+          if (user) {
+            location.replace(next);
+            return;
+          }
+        } catch {
+          // Show the callback error below if session lookup is unavailable.
+        }
+      }
+      if (!active) return;
+
+      if (params.get("session") === "cleared") {
+        setMessage(
+          "Old local sign-in cookies were cleared. You can sign in now.",
+        );
+        setMessageKind("success");
+        return;
+      }
+      if (params.get("error") !== "auth") return;
+      const reason = params.get("reason");
+      setMessageKind("error");
+      if (reason === "missing_verifier")
+        setMessage(
+          "That sign-in link was opened in a different browser or the request is no longer available. Request a fresh link below.",
+        );
+      else if (reason === "expired_code")
+        setMessage(
+          "That sign-in link has expired or was already used. Request a new one.",
+        );
+      else if (reason === "google_not_enabled")
+        setMessage(
+          "Google sign-in is not enabled in Supabase yet. Enable the Google provider and try again.",
+        );
+      else if (reason === "google_cancelled")
+        setMessage("Google sign-in was cancelled. You can try again below.");
+      else if (reason === "oauth_failed")
+        setMessage(
+          "Google could not complete sign-in. Check its Supabase provider settings and try again.",
+        );
+      else if (reason === "configuration")
+        setMessage("Supabase authentication is not configured correctly.");
+      else
+        setMessage(
+          "The sign-in link could not be completed. Request a fresh link.",
+        );
     }
 
-    if (params.get("session") === "cleared") {
-      setMessage(
-        "Old local sign-in cookies were cleared. You can sign in now.",
-      );
-      setMessageKind("success");
-      return;
-    }
-    if (params.get("error") !== "auth") return;
-    const reason = params.get("reason");
-    setMessageKind("error");
-    if (reason === "missing_verifier")
-      setMessage(
-        "That sign-in link was opened in a different browser or the request is no longer available. Request a fresh link below.",
-      );
-    else if (reason === "expired_code")
-      setMessage(
-        "That sign-in link has expired or was already used. Request a new one.",
-      );
-    else if (reason === "google_not_enabled")
-      setMessage(
-        "Google sign-in is not enabled in Supabase yet. Enable the Google provider and try again.",
-      );
-    else if (reason === "google_cancelled")
-      setMessage("Google sign-in was cancelled. You can try again below.");
-    else if (reason === "oauth_failed")
-      setMessage(
-        "Google could not complete sign-in. Check its Supabase provider settings and try again.",
-      );
-    else if (reason === "configuration")
-      setMessage("Supabase authentication is not configured correctly.");
-    else
-      setMessage(
-        "The sign-in link could not be completed. Request a fresh link.",
-      );
+    void finishAuthentication();
+    return () => {
+      active = false;
+    };
   }, [configured]);
 
   async function continueWithEmail(event: FormEvent<HTMLFormElement>) {
@@ -126,19 +141,16 @@ export default function LoginPage() {
     setMessage("");
     try {
       const next = safeNextPath();
-      const { data, error } = await createClient().auth.signInWithOAuth({
+      const { error } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${location.origin}/auth/callback?provider=google&next=${encodeURIComponent(next)}`,
-          skipBrowserRedirect: true,
           queryParams: {
             prompt: "select_account",
           },
         },
       });
       if (error) throw error;
-      if (!data.url) throw new Error("Google sign-in could not be started.");
-      location.assign(data.url);
     } catch (error) {
       oauthStarted.current = false;
       setBusy(false);

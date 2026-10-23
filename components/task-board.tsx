@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   CalendarPlus,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   Plus,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -33,6 +34,10 @@ import { createClient } from "@/lib/supabase/browser";
 import { syncNow } from "@/lib/sync/engine";
 import { capacityTone, capacityUsed, effortPoints } from "@/lib/tasks/capacity";
 import { localDate, parseTask } from "@/lib/tasks/parser";
+import {
+  parseIcsCalendar,
+  type ImportedCalendarEvent,
+} from "@/lib/calendar/ics-import";
 
 type ViewName =
   | "today"
@@ -81,6 +86,14 @@ function escapeIcs(value: string) {
     .replaceAll(";", "\\;")
     .replaceAll(",", "\\,")
     .replaceAll("\n", "\\n");
+}
+
+function calendarImportKey(
+  scheduledDate: string,
+  title: string,
+  timeLabel: string | null,
+) {
+  return `${scheduledDate}:${title.trim().toLowerCase()}:${timeLabel ?? ""}`;
 }
 
 const monthNames = Array.from({ length: 12 }, (_, month) =>
@@ -151,6 +164,13 @@ export function TaskBoard({
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [creatorFilter, setCreatorFilter] = useState("all");
   const [selectedTask, setSelectedTask] = useState<LocalTask | null>(null);
+  const [calendarImport, setCalendarImport] = useState<{
+    fileName: string;
+    events: ImportedCalendarEvent[];
+    skipped: number;
+  } | null>(null);
+  const [calendarImportBusy, setCalendarImportBusy] = useState(false);
+  const icsInputRef = useRef<HTMLInputElement>(null);
   const [selectedLater, setSelectedLater] = useState<string[]>([]);
   const [plannedDate, setPlannedDate] = useState(() => localDate(new Date()));
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -351,11 +371,7 @@ export function TaskBoard({
         throw new Error(`Choose one member for @${parsed.ambiguousAssignee}.`);
       const scheduledDate =
         parsed.scheduledDate ??
-        (view === "today"
-          ? today
-          : view === "planned"
-            ? plannedDate
-            : null);
+        (view === "today" ? today : view === "planned" ? plannedDate : null);
       let targetListId = personalIds.inboxId;
       if (parsed.list) {
         const existingList = lists.find(
@@ -511,14 +527,120 @@ export function TaskBoard({
       "Calendar file downloaded. Import it from Google Calendar → Settings → Import & export.",
     );
   }
-  const syncLabel =
-    !online
-      ? `Offline — ${pending} change${pending === 1 ? "" : "s"} saved`
-      : syncState?.status === "syncing"
-        ? "Syncing"
-        : pending
-          ? `${pending} changes waiting`
-          : "Synced";
+
+  async function readCalendarFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const parsed = parseIcsCalendar(await file.text(), today);
+      if (!parsed.events.length) {
+        setCalendarImport(null);
+        setMessage("No upcoming events were found in this calendar file.");
+        return;
+      }
+      setCalendarImport({
+        fileName: file.name,
+        events: parsed.events,
+        skipped: parsed.skipped,
+      });
+      setMessage("");
+    } catch (error) {
+      setCalendarImport(null);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not read this calendar file.",
+      );
+    }
+  }
+
+  async function importCalendarEvents() {
+    if (!calendarImport || !personalIds) {
+      setMessage("Your personal Inbox is not ready. Try again in a moment.");
+      return;
+    }
+    setCalendarImportBusy(true);
+    const existing = new Set(
+      tasks
+        .filter(
+          (task) =>
+            task.spaceId === personalIds.id &&
+            task.scheduledDate &&
+            !task._deleted,
+        )
+        .map((task) => {
+          const timeLabel = task.notes?.match(
+            /(?:^|\n\n)Calendar time: ([^\n]+)/,
+          )?.[1];
+          return calendarImportKey(
+            task.scheduledDate!,
+            task.title,
+            timeLabel ?? null,
+          );
+        }),
+    );
+    let added = 0;
+    let duplicates = 0;
+    try {
+      for (const event of calendarImport.events) {
+        const key = calendarImportKey(
+          event.scheduledDate,
+          event.title,
+          event.timeLabel,
+        );
+        if (existing.has(key)) {
+          duplicates += 1;
+          continue;
+        }
+        await createTask(userId, personalIds.id, personalIds.inboxId, {
+          title: event.title,
+          notes:
+            [
+              event.description,
+              event.timeLabel ? `Calendar time: ${event.timeLabel}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n\n")
+              .slice(0, 20_000) || null,
+          bucket: "planned",
+          effort: "normal",
+          scheduledDate: event.scheduledDate,
+        });
+        existing.add(key);
+        added += 1;
+      }
+      if (navigator.onLine)
+        void syncNow(userId, getDeviceId(userId)).catch(() => undefined);
+      const focusDate = calendarImport.events[0]?.scheduledDate;
+      if (focusDate) {
+        const focus = dateFromKey(focusDate);
+        setPlannedDate(focusDate);
+        setCalendarMonth(
+          new Date(focus.getFullYear(), focus.getMonth(), 1, 12),
+        );
+      }
+      setCalendarImport(null);
+      if (icsInputRef.current) icsInputRef.current.value = "";
+      const skipped = calendarImport.skipped + duplicates;
+      setMessage(
+        `${added} event${added === 1 ? "" : "s"} added to Planned${skipped ? ` · ${skipped} skipped` : ""}.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `Import stopped after ${added} events: ${error.message}`
+          : `Import stopped after ${added} events.`,
+      );
+    } finally {
+      setCalendarImportBusy(false);
+    }
+  }
+  const syncLabel = !online
+    ? `Offline — ${pending} change${pending === 1 ? "" : "s"} saved`
+    : syncState?.status === "syncing"
+      ? "Syncing"
+      : pending
+        ? `${pending} changes waiting`
+        : "Synced";
   const renderRows = (
     rows: LocalTask[],
     selectable = false,
@@ -845,6 +967,27 @@ export function TaskBoard({
               </select>
             </div>
             <div className="calendar-toolbar-actions">
+              <input
+                ref={icsInputRef}
+                className="sr-only"
+                type="file"
+                accept=".ics,text/calendar"
+                aria-label="Choose an iCalendar file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.currentTarget.value = "";
+                  void readCalendarFile(file);
+                }}
+              />
+              <button
+                type="button"
+                className="subtle-button calendar-import"
+                onClick={() => icsInputRef.current?.click()}
+                title="Import Google Calendar events from an .ics file"
+              >
+                <Upload size={15} />
+                Import .ics
+              </button>
               <button
                 type="button"
                 className="subtle-button calendar-export"
@@ -853,20 +996,64 @@ export function TaskBoard({
                 title="Download all planned tasks for Google Calendar"
               >
                 <CalendarPlus size={15} />
-                Export to Google Calendar
+                Google Calendar
               </button>
               <span className="calendar-total">{visible.length} planned</span>
             </div>
           </div>
+          {calendarImport && (
+            <div className="calendar-import-preview">
+              <div className="calendar-import-copy">
+                <strong>{calendarImport.fileName}</strong>
+                <span>
+                  {calendarImport.events.length} upcoming event
+                  {calendarImport.events.length === 1 ? "" : "s"} ready to add
+                  {calendarImport.skipped > 0
+                    ? ` · ${calendarImport.skipped} past or unavailable events skipped`
+                    : ""}
+                </span>
+                <small>
+                  {calendarImport.events
+                    .slice(0, 3)
+                    .map((event) => `${event.scheduledDate} · ${event.title}`)
+                    .join("  •  ")}
+                  {calendarImport.events.length > 3 ? "  •  …" : ""}
+                </small>
+                <small>
+                  Event dates are scheduled in Planned; descriptions and start
+                  times are kept in task notes.
+                </small>
+              </div>
+              <div className="calendar-import-actions">
+                <button
+                  type="button"
+                  className="subtle-button"
+                  onClick={() => {
+                    setCalendarImport(null);
+                    if (icsInputRef.current) icsInputRef.current.value = "";
+                  }}
+                  disabled={calendarImportBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void importCalendarEvents()}
+                  disabled={calendarImportBusy || !personalIds}
+                >
+                  {calendarImportBusy ? "Importing…" : "Add to Planned"}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="calendar-scroll">
             <div className="calendar-grid">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
-                (day) => (
-                  <div className="calendar-weekday" key={day}>
-                    {day}
-                  </div>
-                ),
-              )}
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div className="calendar-weekday" key={day}>
+                  {day}
+                </div>
+              ))}
               {calendarDays.map((day) => (
                 <div
                   className={`calendar-day ${day.inMonth ? "" : "outside"} ${day.key === today ? "is-today" : ""} ${day.key === plannedDate ? "selected" : ""}`}

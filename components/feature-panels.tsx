@@ -820,11 +820,17 @@ export function SettingsPanel({
       p_theme: theme,
     });
     if (error) return setMessage(error.message);
-    const { error: identityError } = await supabase
-      .from("profiles")
-      .update({ display_name: normalizedName, avatar_url: selectedAvatar })
-      .eq("id", userId);
-    if (identityError) return setMessage(identityError.message);
+    const avatarResponse = await fetch("/api/profile/avatar", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avatarUrl: selectedAvatar }),
+    });
+    if (!avatarResponse.ok) {
+      const result = (await avatarResponse.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      return setMessage(result?.error ?? "Could not save your avatar.");
+    }
     localStorage.setItem("nestlist-theme", theme);
     document.documentElement.dataset.theme =
       theme === "system"
@@ -926,249 +932,264 @@ export function SettingsPanel({
   }
 
   return (
-    <section className="feature-stack settings-grid">
-      <article className="feature-card">
-        <h2>Profile</h2>
-        <div className="profile-editor-preview">
-          <MemberAvatar
-            name={profileName}
-            userId={userId}
-            avatarUrl={selectedAvatar}
-            size="large"
-          />
-          <div>
-            <strong>{profileName || "Your profile"}</strong>
-            <small>Your avatar appears in every shared Circle.</small>
+    <section className="feature-stack settings-columns">
+      <div className="settings-column">
+        <article className="feature-card">
+          <h2>Profile</h2>
+          <div className="profile-editor-preview">
+            <MemberAvatar
+              name={profileName}
+              userId={userId}
+              avatarUrl={selectedAvatar}
+              size="large"
+            />
+            <div>
+              <strong>{profileName || "Your profile"}</strong>
+              <small>Your avatar appears in every shared Circle.</small>
+            </div>
           </div>
-        </div>
-        <label>
-          Display name
-          <input
-            value={profileName}
-            onChange={(event) => setProfileNameEdit(event.target.value)}
-          />
-        </label>
-        <fieldset className="avatar-picker">
-          <legend>Choose an avatar</legend>
-          <div className="avatar-options">
-            {avatarOptions.map((avatar) => (
-              <button
-                type="button"
-                key={avatar.id}
-                className={selectedAvatar === avatar.url ? "selected" : ""}
-                aria-label={`Use ${avatar.label} avatar`}
-                aria-pressed={selectedAvatar === avatar.url}
-                onClick={() => setAvatarEdit(avatar.url)}
-              >
-                <MemberAvatar
-                  name={avatar.label}
-                  userId={`${userId}-${avatar.id}`}
-                  avatarUrl={avatar.url}
-                  size="large"
-                />
-                <span>{avatar.label}</span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <label>
-          Timezone
-          <input
-            value={timezone}
-            onChange={(event) => setTimezoneEdit(event.target.value)}
-          />
-        </label>
-        <label>
-          Week starts
-          <select
-            value={weekStart}
-            onChange={(event) => setWeekStartEdit(Number(event.target.value))}
-          >
-            <option value={0}>Sunday</option>
-            <option value={1}>Monday</option>
-            <option value={6}>Saturday</option>
-          </select>
-        </label>
-        <label>
-          Theme
-          <select
-            value={theme}
-            onChange={(event) => {
-              const value = event.target.value;
-              setThemeEdit(value);
-              localStorage.setItem("nestlist-theme", value);
-              document.documentElement.dataset.theme =
-                value === "system"
-                  ? matchMedia("(prefers-color-scheme: dark)").matches
-                    ? "dark"
-                    : "light"
-                  : value;
-            }}
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-        <button className="button" onClick={saveProfile}>
-          Save profile
-        </button>
-      </article>
-      <article className="feature-card">
-        <h2>Planning</h2>
-        <label>
-          Today’s capacity
-          <input
-            type="number"
-            min={1}
-            max={40}
-            value={capacity}
-            onChange={(event) => setCapacityEdit(Number(event.target.value))}
-          />
-        </label>
-        <button
-          className="button"
-          disabled={!personalSpaceId}
-          onClick={() =>
-            personalSpaceId &&
-            setCapacity(userId, personalSpaceId, todayKey(), capacity).then(
-              () => setMessage("Capacity saved."),
-            )
-          }
-        >
-          Save capacity
-        </button>
-      </article>
-      <article className="feature-card">
-        <h2>Notifications</h2>
-        <div className="notification-status-row">
-          <span className={`notification-state state-${pushStatus}`}>
-            <span />
-            {pushStatus === "enabled"
-              ? "Enabled on this device"
-              : pushStatus === "blocked"
-                ? "Blocked in browser settings"
-                : pushStatus === "unsupported"
-                  ? "Not supported on this device"
-                  : "Ready to enable"}
-          </span>
-          <span className="install-state">
-            {installed ? "Installed app" : "Browser mode"}
-          </span>
-        </div>
-        <p>
-          Receive one app notification with all open tasks planned for that day.
-          This uses the installed PWA and never sends a Gmail message.
-        </p>
-        <label>
-          Daily summary time
-          <input
-            type="time"
-            value={dailyDigestTime}
-            onChange={(event) => setDigestTime(event.target.value)}
-            disabled={pushStatus === "unsupported"}
-          />
-        </label>
-        {!installed && (
-          <p className="notification-hint">
-            Install NestList for the most app-like experience. On iPhone and
-            iPad, installation on the Home Screen is required for web push.
-          </p>
-        )}
-        <div className="card-actions">
-          {!installed && installPrompt && (
-            <button className="subtle-button" onClick={installApp}>
-              <Download size={15} /> Install app
-            </button>
-          )}
-          <button
-            className="button"
-            onClick={
-              pushStatus === "enabled" && dailyDigestEnabled
-                ? saveDailySummaryTime
-                : enableDailySummary
-            }
-            disabled={pushStatus === "unsupported" || pushStatus === "blocked"}
-          >
-            <Bell size={15} />{" "}
-            {pushStatus !== "enabled"
-              ? "Enable on this device"
-              : dailyDigestEnabled
-                ? "Save time"
-                : "Enable daily summary"}
+          <label>
+            Display name
+            <input
+              value={profileName}
+              onChange={(event) => setProfileNameEdit(event.target.value)}
+            />
+          </label>
+          <fieldset className="avatar-picker">
+            <legend>Choose an avatar</legend>
+            <div className="avatar-options">
+              {avatarOptions.map((avatar) => (
+                <button
+                  type="button"
+                  key={avatar.id}
+                  className={selectedAvatar === avatar.url ? "selected" : ""}
+                  aria-label={`Use ${avatar.label} avatar`}
+                  aria-pressed={selectedAvatar === avatar.url}
+                  onClick={() => setAvatarEdit(avatar.url)}
+                >
+                  <MemberAvatar
+                    name={avatar.label}
+                    userId={`${userId}-${avatar.id}`}
+                    avatarUrl={avatar.url}
+                    size="large"
+                  />
+                  <span>{avatar.label}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <label>
+            Timezone
+            <input
+              value={timezone}
+              onChange={(event) => setTimezoneEdit(event.target.value)}
+            />
+          </label>
+          <label>
+            Week starts
+            <select
+              value={weekStart}
+              onChange={(event) => setWeekStartEdit(Number(event.target.value))}
+            >
+              <option value={0}>Sunday</option>
+              <option value={1}>Monday</option>
+              <option value={6}>Saturday</option>
+            </select>
+          </label>
+          <label>
+            Theme
+            <select
+              value={theme}
+              onChange={(event) => {
+                const value = event.target.value;
+                setThemeEdit(value);
+                localStorage.setItem("nestlist-theme", value);
+                document.documentElement.dataset.theme =
+                  value === "system"
+                    ? matchMedia("(prefers-color-scheme: dark)").matches
+                      ? "dark"
+                      : "light"
+                    : value;
+              }}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <button className="button" onClick={saveProfile}>
+            Save profile
           </button>
-          {dailyDigestEnabled && (
-            <button className="subtle-button" onClick={disableDailySummary}>
-              Disable daily summary
-            </button>
-          )}
-        </div>
-      </article>
-      <article className="feature-card">
-        <h2>Offline & sync</h2>
-        <p>
-          {outbox.length} pending · {conflicts.length} conflicts · last sync{" "}
-          {sync?.lastSyncedAt
-            ? new Date(sync.lastSyncedAt).toLocaleString()
-            : "never"}
-        </p>
-        <p>{storage || "Check how much browser storage NestList uses."}</p>
-        <div className="card-actions">
-          <button className="subtle-button" onClick={estimateStorage}>
-            Check storage
-          </button>
-          <button
-            className="subtle-button"
-            onClick={() =>
-              syncNow(userId, getDeviceId(userId))
-                .then(() => setMessage("Sync finished."))
-                .catch((error) => setMessage(error.message))
-            }
-          >
-            <RefreshCw size={15} /> Retry sync
-          </button>
-        </div>
-      </article>
-      <article className="feature-card">
-        <h2>Export</h2>
-        <p>
-          Download a portable copy before clearing browser data. Diagnostics
-          contain counts and codes without task text.
-        </p>
-        <div className="card-actions">
-          <button className="subtle-button" onClick={exportJson}>
-            <Download size={15} /> JSON
-          </button>
-          <button className="subtle-button" onClick={exportCsv}>
-            <Download size={15} /> CSV
-          </button>
-          <button className="subtle-button" onClick={exportDiagnostics}>
-            <Download size={15} /> Diagnostics
-          </button>
-        </div>
-      </article>
-      <article className="feature-card warning-card">
-        <h2>Account</h2>
-        <p>
-          Deletion permanently removes the cloud account and this device’s local
-          copy.
-        </p>
-        <button className="modal-option danger" onClick={deleteAccount}>
-          Delete account
-        </button>
-      </article>
-      {recovery.length > 0 && (
-        <article className="feature-card warning-card">
-          <h2>Recovered drafts</h2>
-          {recovery.map((item) => (
-            <details key={item.id}>
-              <summary>{item.title}</summary>
-              <p>{item.reason}</p>
-              <pre>{item.body}</pre>
-            </details>
-          ))}
         </article>
-      )}
+        <article className="feature-card settings-compact-card settings-sync-card">
+          <h2>Offline & sync</h2>
+          <div className="settings-sync-details">
+            <p className="settings-sync-summary">
+              {outbox.length} pending · {conflicts.length} conflicts · last sync{" "}
+              {sync?.lastSyncedAt
+                ? new Date(sync.lastSyncedAt).toLocaleString()
+                : "never"}
+            </p>
+            <p className="settings-sync-storage">
+              {storage || "Check how much browser storage NestList uses."}
+            </p>
+          </div>
+          <div className="card-actions">
+            <button className="subtle-button" onClick={estimateStorage}>
+              Check storage
+            </button>
+            <button
+              className="subtle-button"
+              onClick={() =>
+                syncNow(userId, getDeviceId(userId))
+                  .then(() => setMessage("Sync finished."))
+                  .catch((error) => setMessage(error.message))
+              }
+            >
+              <RefreshCw size={15} /> Retry sync
+            </button>
+          </div>
+        </article>
+        {recovery.length > 0 && (
+          <article className="feature-card warning-card">
+            <h2>Recovered drafts</h2>
+            {recovery.map((item) => (
+              <details key={item.id}>
+                <summary>{item.title}</summary>
+                <p>{item.reason}</p>
+                <pre>{item.body}</pre>
+              </details>
+            ))}
+          </article>
+        )}
+      </div>
+      <div className="settings-column">
+        <article className="feature-card settings-compact-card settings-planning-card">
+          <h2>Planning</h2>
+          <div className="settings-compact-actions">
+            <label>
+              Today’s capacity
+              <input
+                className="capacity-input"
+                type="number"
+                min={1}
+                max={40}
+                value={capacity}
+                onChange={(event) =>
+                  setCapacityEdit(Number(event.target.value))
+                }
+              />
+            </label>
+            <button
+              className="button"
+              disabled={!personalSpaceId}
+              onClick={() =>
+                personalSpaceId &&
+                setCapacity(userId, personalSpaceId, todayKey(), capacity).then(
+                  () => setMessage("Capacity saved."),
+                )
+              }
+            >
+              Save capacity
+            </button>
+          </div>
+        </article>
+      <article className="feature-card">
+          <h2>Notifications</h2>
+          <div className="notification-status-row">
+            <span className={`notification-state state-${pushStatus}`}>
+              <span />
+              {pushStatus === "enabled"
+                ? "Enabled on this device"
+                : pushStatus === "blocked"
+                  ? "Blocked in browser settings"
+                  : pushStatus === "unsupported"
+                    ? "Not supported on this device"
+                    : "Ready to enable"}
+            </span>
+            <span className="install-state">
+              {installed ? "Installed app" : "Browser mode"}
+            </span>
+          </div>
+          <p>
+            Receive one app notification with all open tasks planned for that
+            day. This uses the installed PWA and never sends a Gmail message.
+          </p>
+          <label>
+            Daily summary time
+            <input
+              type="time"
+              value={dailyDigestTime}
+              onChange={(event) => setDigestTime(event.target.value)}
+              disabled={pushStatus === "unsupported"}
+            />
+          </label>
+          {!installed && (
+            <p className="notification-hint">
+              Install NestList for the most app-like experience. On iPhone and
+              iPad, installation on the Home Screen is required for web push.
+            </p>
+          )}
+          <div className="card-actions">
+            {!installed && installPrompt && (
+              <button className="subtle-button" onClick={installApp}>
+                <Download size={15} /> Install app
+              </button>
+            )}
+            <button
+              className="button"
+              onClick={
+                pushStatus === "enabled" && dailyDigestEnabled
+                  ? saveDailySummaryTime
+                  : enableDailySummary
+              }
+              disabled={
+                pushStatus === "unsupported" || pushStatus === "blocked"
+              }
+            >
+              <Bell size={15} />{" "}
+              {pushStatus !== "enabled"
+                ? "Enable on this device"
+                : dailyDigestEnabled
+                  ? "Save time"
+                  : "Enable daily summary"}
+            </button>
+            {dailyDigestEnabled && (
+              <button className="subtle-button" onClick={disableDailySummary}>
+                Disable daily summary
+              </button>
+            )}
+          </div>
+        </article>
+        <article className="feature-card">
+          <h2>Export</h2>
+          <p>
+            Download a portable copy before clearing browser data. Diagnostics
+            contain counts and codes without task text.
+          </p>
+          <div className="card-actions">
+            <button className="subtle-button" onClick={exportJson}>
+              <Download size={15} /> JSON
+            </button>
+            <button className="subtle-button" onClick={exportCsv}>
+              <Download size={15} /> CSV
+            </button>
+            <button className="subtle-button" onClick={exportDiagnostics}>
+              <Download size={15} /> Diagnostics
+            </button>
+          </div>
+        </article>
+        <article className="feature-card warning-card">
+          <h2>Account</h2>
+          <p>
+            Deletion permanently removes the cloud account and this device’s
+            local copy.
+          </p>
+          <button className="modal-option danger" onClick={deleteAccount}>
+            Delete account
+          </button>
+        </article>
+      </div>
       {message && (
         <div className="toast" role="status">
           {message}
