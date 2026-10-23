@@ -3,10 +3,45 @@ import { createClient } from "@/lib/supabase/browser";
 
 export type PushStatus = "unsupported" | "blocked" | "available" | "enabled";
 
+export type PushEnvironment = {
+  installed: boolean;
+  ios: boolean;
+};
+
 function decodeBase64Url(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const binary = atob((value + padding).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export function getPushEnvironment(): PushEnvironment {
+  if (typeof window === "undefined") return { installed: false, ios: false };
+  const navigatorWithStandalone = navigator as Navigator & {
+    standalone?: boolean;
+  };
+  return {
+    installed:
+      window.matchMedia("(display-mode: standalone)").matches ||
+      navigatorWithStandalone.standalone === true,
+    ios:
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+  };
+}
+
+async function getNotificationRegistration() {
+  let registration = await navigator.serviceWorker.getRegistration("/");
+  if (!registration && process.env.NODE_ENV === "production") {
+    registration = await navigator.serviceWorker.register("/sw.js", {
+      scope: "/",
+    });
+  }
+  if (!registration)
+    throw new Error(
+      "Notifications are available after installing a production build of NestList.",
+    );
+  await navigator.serviceWorker.ready;
+  return registration;
 }
 
 export async function enablePush(userId: string) {
@@ -16,22 +51,27 @@ export async function enablePush(userId: string) {
     !("Notification" in window)
   )
     throw new Error("Push notifications are not supported in this browser.");
+  const environment = getPushEnvironment();
+  if (environment.ios && !environment.installed)
+    throw new Error(
+      "On iPhone or iPad, open NestList in Safari, choose Share, then Add to Home Screen before enabling notifications.",
+    );
   const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   if (!vapid) throw new Error("Push notifications are not configured.");
-  const existingRegistration = await navigator.serviceWorker.getRegistration();
-  if (!existingRegistration && process.env.NODE_ENV === "development")
-    throw new Error(
-      "PWA notifications are disabled by the development server. Run a production build to enable them.",
-    );
   const permission = await Notification.requestPermission();
   if (permission !== "granted")
-    throw new Error("Notification permission was not granted.");
-  const registration =
-    existingRegistration ?? (await navigator.serviceWorker.ready);
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: decodeBase64Url(vapid),
-  });
+    throw new Error(
+      permission === "denied"
+        ? "Notifications are blocked. Allow them in this device's browser or app settings, then try again."
+        : "Notification permission was not granted.",
+    );
+  const registration = await getNotificationRegistration();
+  const subscription =
+    (await registration.pushManager.getSubscription()) ??
+    (await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeBase64Url(vapid),
+    }));
   const json = subscription.toJSON();
   const response = await fetch("/api/push/subscribe", {
     method: "POST",
@@ -42,9 +82,28 @@ export async function enablePush(userId: string) {
       keys: json.keys,
     }),
   });
-  if (!response.ok)
-    throw new Error("Could not save this browser for reminders.");
+  if (!response.ok) {
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.error ?? "Could not save this browser for reminders.",
+    );
+  }
   return subscription;
+}
+
+export async function showTestNotification() {
+  if (!("Notification" in window) || Notification.permission !== "granted")
+    throw new Error("Enable notifications on this device first.");
+  const registration = await getNotificationRegistration();
+  await registration.showNotification("NestList notifications are ready", {
+    body: "Daily plans and task reminders can now appear on this device.",
+    icon: "/icons/icon-192.svg",
+    badge: "/icons/icon-192.svg",
+    tag: "nestlist-notification-test",
+    data: { url: "/today" },
+  });
 }
 
 export async function disablePush() {
@@ -68,6 +127,8 @@ export async function getPushStatus(): Promise<PushStatus> {
     !("PushManager" in window)
   )
     return "unsupported";
+  const environment = getPushEnvironment();
+  if (environment.ios && !environment.installed) return "unsupported";
   if (Notification.permission === "denied") return "blocked";
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager.getSubscription();

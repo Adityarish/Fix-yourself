@@ -38,17 +38,16 @@ import {
 import { getDeviceId } from "@/lib/db/repositories/outbox";
 import {
   enablePush,
+  getPushEnvironment,
   getPushStatus,
   saveDailySummaryPreferences,
+  showTestNotification,
   type PushStatus,
 } from "@/lib/notifications/push";
 import { syncNow } from "@/lib/sync/engine";
 import { createClient } from "@/lib/supabase/browser";
 import { MemberAvatar } from "@/components/member-avatar";
-import {
-  defaultAvatarUrl,
-  selectableAvatars,
-} from "@/lib/profile/avatars";
+import { defaultAvatarUrl, selectableAvatars } from "@/lib/profile/avatars";
 import {
   isRoutineEligible,
   routineLocalDate,
@@ -343,11 +342,12 @@ export function CirclesPanel({ userId }: { userId: string }) {
   }, []);
 
   useEffect(() => {
-    void refreshInviteRequests();
     const refresh = () => void refreshInviteRequests();
+    const initialRefresh = window.setTimeout(refresh, 0);
     window.addEventListener("focus", refresh);
     window.addEventListener("online", refresh);
     return () => {
+      window.clearTimeout(initialRefresh);
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);
     };
@@ -645,6 +645,8 @@ export function SettingsPanel({
   const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null);
   const [digestTime, setDigestTime] = useState<string | null>(null);
   const [installed, setInstalled] = useState(false);
+  const [iosDevice, setIosDevice] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<
     | (Event & {
         prompt(): Promise<void>;
@@ -658,12 +660,13 @@ export function SettingsPanel({
 
   useEffect(() => {
     void getPushStatus()
-      .then(setPushStatus)
+      .then((status) => {
+        setPushStatus(status);
+        const environment = getPushEnvironment();
+        setInstalled(environment.installed);
+        setIosDevice(environment.ios);
+      })
       .catch(() => setPushStatus("available"));
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-    setInstalled(standalone);
     const captureInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(
@@ -673,9 +676,17 @@ export function SettingsPanel({
         },
       );
     };
+    const markInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      void getPushStatus().then(setPushStatus);
+    };
     window.addEventListener("beforeinstallprompt", captureInstallPrompt);
-    return () =>
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
       window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
   }, []);
 
   async function estimateStorage() {
@@ -871,6 +882,7 @@ export function SettingsPanel({
   }
 
   async function enableDailySummary() {
+    setNotificationBusy(true);
     try {
       await enablePush(userId);
       await saveDailySummaryPreferences(true, dailyDigestTime);
@@ -881,15 +893,19 @@ export function SettingsPanel({
         `Daily app summary enabled for ${dailyDigestTime}. No email will be sent.`,
       );
     } catch (error) {
+      void getPushStatus().then(setPushStatus);
       setMessage(
         error instanceof Error
           ? error.message
           : "Could not enable notifications.",
       );
+    } finally {
+      setNotificationBusy(false);
     }
   }
 
   async function saveDailySummaryTime() {
+    setNotificationBusy(true);
     try {
       await saveDailySummaryPreferences(dailyDigestEnabled, dailyDigestTime);
       await cacheDailySummary(dailyDigestEnabled, dailyDigestTime);
@@ -900,10 +916,13 @@ export function SettingsPanel({
           ? error.message
           : "Could not save notification time.",
       );
+    } finally {
+      setNotificationBusy(false);
     }
   }
 
   async function disableDailySummary() {
+    setNotificationBusy(true);
     try {
       await saveDailySummaryPreferences(false, dailyDigestTime);
       await cacheDailySummary(false, dailyDigestTime);
@@ -915,6 +934,24 @@ export function SettingsPanel({
           ? error.message
           : "Could not disable notifications.",
       );
+    } finally {
+      setNotificationBusy(false);
+    }
+  }
+
+  async function testNotification() {
+    setNotificationBusy(true);
+    try {
+      await showTestNotification();
+      setMessage("Test notification sent to this device.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not show the test notification.",
+      );
+    } finally {
+      setNotificationBusy(false);
     }
   }
 
@@ -1094,7 +1131,7 @@ export function SettingsPanel({
             </button>
           </div>
         </article>
-      <article className="feature-card">
+        <article className="feature-card">
           <h2>Notifications</h2>
           <div className="notification-status-row">
             <span className={`notification-state state-${pushStatus}`}>
@@ -1126,8 +1163,9 @@ export function SettingsPanel({
           </label>
           {!installed && (
             <p className="notification-hint">
-              Install NestList for the most app-like experience. On iPhone and
-              iPad, installation on the Home Screen is required for web push.
+              {iosDevice
+                ? "On iPhone or iPad, open this site in Safari, tap Share, then Add to Home Screen. Open the installed NestList icon and enable notifications here."
+                : "Install NestList for the most app-like experience and reliable notification access."}
             </p>
           )}
           <div className="card-actions">
@@ -1144,18 +1182,35 @@ export function SettingsPanel({
                   : enableDailySummary
               }
               disabled={
-                pushStatus === "unsupported" || pushStatus === "blocked"
+                notificationBusy ||
+                pushStatus === "unsupported" ||
+                pushStatus === "blocked"
               }
             >
               <Bell size={15} />{" "}
-              {pushStatus !== "enabled"
-                ? "Enable on this device"
-                : dailyDigestEnabled
-                  ? "Save time"
-                  : "Enable daily summary"}
+              {notificationBusy
+                ? "Please wait…"
+                : pushStatus !== "enabled"
+                  ? "Enable on this device"
+                  : dailyDigestEnabled
+                    ? "Save time"
+                    : "Enable daily summary"}
             </button>
+            {pushStatus === "enabled" && (
+              <button
+                className="subtle-button"
+                onClick={testNotification}
+                disabled={notificationBusy}
+              >
+                <Bell size={15} /> Test notification
+              </button>
+            )}
             {dailyDigestEnabled && (
-              <button className="subtle-button" onClick={disableDailySummary}>
+              <button
+                className="subtle-button"
+                onClick={disableDailySummary}
+                disabled={notificationBusy}
+              >
                 Disable daily summary
               </button>
             )}

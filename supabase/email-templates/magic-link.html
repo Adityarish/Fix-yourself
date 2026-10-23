@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open NestList</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #f2f3fb;
+      color: #20243a;
+      font-family: Arial, Helvetica, sans-serif;
+    "
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="background: #f2f3fb"
+    >
+      <tr>
+        <td align="center" style="padding: 36px 16px">
+          <table
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            border="0"
+            style="
+              max-width: 560px;
+              overflow: hidden;
+              border: 1px solid #e1e3f1;
+              border-radius: 24px;
+              background: #ffffff;
+              box-shadow: 0 18px 50px rgba(48, 51, 105, 0.12);
+            "
+          >
+            <tr>
+              <td
+                style="
+                  height: 8px;
+                  background: linear-gradient(90deg, #5146e5, #7969f4, #5ec4d6);
+                  font-size: 0;
+                  line-height: 0;
+                "
+              >
+                &nbsp;
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 34px 38px 12px">
+                <table
+                  role="presentation"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                >
+                  <tr>
+                    <td
+                      width="44"
+                      height="44"
+                      align="center"
+                      style="
+                        border-radius: 13px;
+                        background: #5649e8;
+                        color: #ffffff;
+                        font-family: Georgia, serif;
+                        font-size: 25px;
+                        line-height: 44px;
+                        box-shadow: 0 8px 20px rgba(86, 73, 232, 0.28);
+                      "
+                    >
+                      ≋
+                    </td>
+                    <td
+                      style="
+                        padding-left: 13px;
+                        color: #1d2137;
+                        font-family: Georgia, serif;
+                        font-size: 22px;
+                        font-weight: 700;
+                      "
+                    >
+                      NestList
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 17px 38px 10px">
+                <div
+                  style="
+                    margin-bottom: 9px;
+                    color: #6259dc;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.14em;
+                    text-transform: uppercase;
+                  "
+                >
+                  Your calm workspace is ready
+                </div>
+                <h1
+                  style="
+                    margin: 0 0 13px;
+                    color: #181d35;
+                    font-family: Georgia, &quot;Times New Roman&quot;, serif;
+                    font-size: 31px;
+                    line-height: 1.18;
+                  "
+                >
+                  Let’s open your plan.
+                </h1>
+                <p
+                  style="
+                    margin: 0;
+                    color: #667085;
+                    font-size: 15px;
+                    line-height: 1.7;
+                  "
+                >
+                  Use the secure button below to sign in or verify your new
+                  NestList account. This link works once and expires for your
+                  protection.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding: 21px 38px 18px">
+                <a
+                  href="{{ .RedirectTo }}&amp;token_hash={{ .TokenHash }}&amp;type=email"
+                  style="
+                    display: block;
+                    padding: 15px 22px;
+                    border-radius: 13px;
+                    background: #5547e7;
+                    color: #ffffff;
+                    font-size: 15px;
+                    font-weight: 700;
+                    line-height: 20px;
+                    text-align: center;
+                    text-decoration: none;
+                    box-shadow: 0 9px 24px rgba(85, 71, 231, 0.25);
+                  "
+                  >Open NestList securely&nbsp; →</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 38px 18px">
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                  style="
+                    border: 1px solid #e4e2fa;
+                    border-radius: 14px;
+                    background: #f8f7ff;
+                  "
+                >
+                  <tr>
+                    <td
+                      align="center"
+                      style="
+                        padding: 15px 18px 5px;
+                        color: #626980;
+                        font-size: 12px;
+                        line-height: 1.5;
+                      "
+                    >
+                      Using the installed app? Enter this one-time code there:
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      align="center"
+                      style="
+                        padding: 3px 18px 16px;
+                        color: #302a88;
+                        font-family: &quot;Courier New&quot;, monospace;
+                        font-size: 27px;
+                        font-weight: 700;
+                        letter-spacing: 7px;
+                      "
+                    >
+                      {{ .Token }}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 38px 34px">
+                <p
+                  style="
+                    margin: 0;
+                    color: #8b91a3;
+                    font-size: 12px;
+                    line-height: 1.65;
+                  "
+                >
+                  If you did not request this email, you can safely ignore it.
+                  NestList will never ask you to send this code to another
+                  person.
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p
+            style="
+              margin: 18px 0 0;
+              color: #979caf;
+              font-size: 11px;
+              line-height: 1.5;
+            "
+          >
+            Tasks, routines, and shared plans — gently organized.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

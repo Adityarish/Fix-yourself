@@ -26,6 +26,8 @@ function safeNextPath() {
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const [sentEmail, setSentEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<MessageKind>("info");
   const [busy, setBusy] = useState(false);
@@ -113,20 +115,48 @@ export default function LoginPage() {
         email: normalizedEmail,
         options: {
           shouldCreateUser: true,
-          emailRedirectTo: `${location.origin}/auth/confirm?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: `${location.origin}/auth/email-confirm?next=${encodeURIComponent(next)}`,
         },
       });
       if (error) throw error;
 
       setSent(true);
+      setSentEmail(normalizedEmail);
+      setOtp("");
       setMessageKind("success");
       setMessage(
-        `A secure sign-in link was sent to ${normalizedEmail}. If this email is new, its NestList account has been created automatically.`,
+        `Check ${normalizedEmail}. Open the secure link, or enter the one-time code below without leaving this app.`,
       );
     } catch (error) {
       setMessageKind("error");
       setMessage(
         error instanceof Error ? error.message : "The email could not be sent.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmEmailCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = otp.replace(/\s/g, "");
+    if (!sentEmail || !token) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const { error } = await createClient().auth.verifyOtp({
+        email: sentEmail,
+        token,
+        type: "email",
+      });
+      if (error) throw error;
+      location.replace(safeNextPath());
+    } catch (error) {
+      setMessageKind("error");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "That one-time code could not be verified.",
       );
     } finally {
       setBusy(false);
@@ -279,7 +309,7 @@ export default function LoginPage() {
             <span className="login-card-eyebrow">Welcome</span>
             <h2>Start with your email</h2>
             <p>
-              We&apos;ll send you a secure one-time link. New emails get an
+              We&apos;ll send a secure link and one-time code. New emails get an
               account automatically.
             </p>
           </div>
@@ -298,6 +328,8 @@ export default function LoginPage() {
                 onChange={(event) => {
                   setEmail(event.target.value);
                   setSent(false);
+                  setSentEmail("");
+                  setOtp("");
                 }}
                 placeholder="you@example.com"
               />
@@ -317,6 +349,44 @@ export default function LoginPage() {
               {!busy && <ArrowRight size={17} />}
             </button>
           </form>
+
+          {sent && sentEmail && (
+            <form className="email-code-form" onSubmit={confirmEmailCode}>
+              <div className="email-code-heading">
+                <div>
+                  <strong>Enter the code from your email</strong>
+                  <span>This keeps you inside the installed app.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSent(false);
+                    setSentEmail("");
+                    setOtp("");
+                    setMessage("");
+                  }}
+                >
+                  Change email
+                </button>
+              </div>
+              <input
+                aria-label="One-time email code"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={10}
+                placeholder="000000"
+                value={otp}
+                onChange={(event) =>
+                  setOtp(event.target.value.replace(/\D/g, ""))
+                }
+                required
+              />
+              <button className="button" type="submit" disabled={!otp || busy}>
+                {busy ? "Verifying…" : "Verify and open NestList"}
+              </button>
+            </form>
+          )}
 
           <div className="auth-divider">
             <span>or</span>

@@ -1269,6 +1269,61 @@ textarea::placeholder {
   justify-content: space-between;
   font-size: 13px;
 }
+.email-code-form {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #d8d5fb;
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  background: linear-gradient(145deg, #f7f6ff, #f1f8ff);
+  animation: toast-in 240ms ease-out both;
+}
+.email-code-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.email-code-heading > div {
+  display: grid;
+  gap: 2px;
+}
+.email-code-heading strong {
+  color: #2f3151;
+  font-size: 11px;
+}
+.email-code-heading span {
+  color: #737b91;
+  font-size: 10px;
+}
+.email-code-heading button {
+  padding: 0;
+  border: 0;
+  color: #5850c8;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.auth-card .email-code-form input {
+  min-width: 0;
+  min-height: 43px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: 0.22em;
+  text-align: center;
+}
+.email-code-form .button {
+  min-height: 43px;
+  padding-inline: 14px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
 .auth-divider {
   margin: 22px 0 13px;
   display: flex;
@@ -1341,6 +1396,53 @@ textarea::placeholder {
   color: #5148b4;
   border-color: #d3cff8;
   background: #f5f3ff;
+}
+.email-confirm-page {
+  padding: 24px;
+}
+.email-confirm-card {
+  width: min(100%, 470px);
+  padding: 36px;
+  text-align: center;
+}
+.email-confirm-card .brand {
+  justify-content: center;
+}
+.email-confirm-icon {
+  width: 58px;
+  height: 58px;
+  margin: 30px auto 18px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: #5146e5;
+  background: linear-gradient(145deg, #eeebff, #eef8ff);
+  box-shadow: inset 0 0 0 1px rgb(81 70 229 / 10%);
+}
+.email-confirm-card h1 {
+  margin: 8px 0 12px;
+}
+.email-confirm-card > p:not(.login-card-eyebrow) {
+  margin-inline: auto;
+  line-height: 1.7;
+}
+.email-confirm-card form {
+  margin-top: 24px;
+}
+.email-confirm-card .button {
+  width: 100%;
+  min-height: 49px;
+  margin-top: 24px;
+  display: flex;
+}
+.email-confirm-card form .button {
+  margin-top: 0;
+}
+.email-confirm-card small {
+  margin-top: 16px;
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
 }
 .offline-page {
   min-height: 100dvh;
@@ -2791,6 +2893,12 @@ fieldset legend {
 }
 
 @media (max-width: 760px) {
+  .email-code-form {
+    grid-template-columns: 1fr;
+  }
+  .email-code-form .button {
+    width: 100%;
+  }
   .settings-columns {
     grid-template-columns: minmax(0, 1fr);
   }
