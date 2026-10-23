@@ -167,8 +167,8 @@ export default function LoginPage() {
 
   async function confirmEmailCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const token = otp.replace(/\s/g, "");
-    if (!sentEmail || !token) return;
+    const token = otp.replace(/\D/g, "").slice(0, 6);
+    if (!sentEmail || token.length !== 6) return;
     setBusy(true);
     setMessage("");
     try {
@@ -370,11 +370,11 @@ export default function LoginPage() {
             >
               <span>
                 {busy
-                  ? "Sending secure link…"
+                  ? "Sending verification code…"
                   : resendSeconds > 0
                     ? `Resend available in ${resendSeconds}s`
                     : sent
-                      ? "Send another link"
+                      ? "Send another code"
                       : "Continue with email"}
               </span>
               {!busy && <ArrowRight size={17} />}
@@ -387,8 +387,8 @@ export default function LoginPage() {
                 <div>
                   <strong>Enter the code from your email</strong>
                   <span>
-                    Look for “Your secure NestList sign-in”. This keeps you
-                    inside the installed app.
+                    Look for “Your NestList verification code”. Enter the
+                    six-digit code without leaving this app.
                   </span>
                 </div>
                 <button
@@ -408,16 +408,21 @@ export default function LoginPage() {
                 aria-label="One-time email code"
                 autoComplete="one-time-code"
                 inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={10}
+                pattern="[0-9]{6}"
+                minLength={6}
+                maxLength={6}
                 placeholder="000000"
                 value={otp}
                 onChange={(event) =>
-                  setOtp(event.target.value.replace(/\D/g, ""))
+                  setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
                 }
                 required
               />
-              <button className="button" type="submit" disabled={!otp || busy}>
+              <button
+                className="button"
+                type="submit"
+                disabled={otp.length !== 6 || busy}
+              >
                 {busy ? "Verifying…" : "Verify and open NestList"}
               </button>
             </form>

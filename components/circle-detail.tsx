@@ -81,8 +81,13 @@ export function CircleDetail({
   useEffect(() => {
     let active = true;
     if (!canManageMembers || !navigator.onLine) {
-      setSentInvites([]);
-      return;
+      const clearFrame = window.requestAnimationFrame(() => {
+        if (active) setSentInvites([]);
+      });
+      return () => {
+        active = false;
+        window.cancelAnimationFrame(clearFrame);
+      };
     }
     void listCircleInvites(circleId)
       .then((invitations) => {

@@ -15,6 +15,8 @@ import {
   Settings,
   LogOut,
   History,
+  Menu,
+  X,
 } from "lucide-react";
 import { deleteUserDatabase, getDatabase } from "@/lib/db/client-db";
 import { getDeviceId } from "@/lib/db/repositories/outbox";
@@ -32,6 +34,12 @@ const links = [
   { href: "/activity", label: "Activity", icon: History, group: "YOUR SPACE" },
 ];
 
+const mobilePrimaryHrefs = ["/today", "/planned", "/circles", "/activity"];
+const mobileMenuLinks = [
+  ...links,
+  { href: "/settings", label: "Settings", icon: Settings, group: "ACCOUNT" },
+];
+
 export function WorkspaceShell({
   userId,
   displayName,
@@ -46,6 +54,7 @@ export function WorkspaceShell({
   const [syncMessage, setSyncMessage] = useState("Synced");
   const [pendingCount, setPendingCount] = useState(0);
   const [signOutBusy, setSignOutBusy] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [updateReady, setUpdateReady] =
     useState<ServiceWorkerRegistration | null>(null);
   const db = useMemo(() => getDatabase(userId), [userId]);
@@ -99,7 +108,9 @@ export function WorkspaceShell({
             : savedTheme;
     const up = () => setOnline(true);
     const down = () => setOnline(false);
-    setOnline(navigator.onLine);
+    const onlineFrame = window.requestAnimationFrame(() =>
+      setOnline(navigator.onLine),
+    );
     const workerMessage = (event: MessageEvent) => {
       if (event.data?.type === "NESTLIST_SYNC")
         void syncNow(userId, getDeviceId(userId));
@@ -137,6 +148,7 @@ export function WorkspaceShell({
       )
       .subscribe();
     return () => {
+      window.cancelAnimationFrame(onlineFrame);
       window.removeEventListener("online", up);
       window.removeEventListener("offline", down);
       navigator.serviceWorker?.removeEventListener("message", workerMessage);
@@ -249,6 +261,20 @@ export function WorkspaceShell({
     );
     return () => window.clearTimeout(timer);
   }, [profileRecord, scheduledTasks, userId]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileMenuOpen]);
 
   const currentSyncMessage =
     syncState?.status === "syncing"
@@ -424,21 +450,114 @@ export function WorkspaceShell({
           </button>
         </div>
       </header>
-      <main className="main">{children}</main>
+      <main className="main" key={pathname}>
+        {children}
+      </main>
       <nav className="mobile-nav" aria-label="Main navigation">
-        {links.slice(0, 5).map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={pathname === href ? "active" : ""}
-          >
-            <span>
-              <Icon size={18} strokeWidth={1.8} />
-            </span>
-            {label}
-          </Link>
-        ))}
+        {links
+          .filter(({ href }) => mobilePrimaryHrefs.includes(href))
+          .map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={pathname === href ? "active" : ""}
+            >
+              <span>
+                <Icon size={19} strokeWidth={1.8} />
+              </span>
+              {label}
+            </Link>
+          ))}
+        <button
+          type="button"
+          className={
+            mobileMenuOpen ||
+            (!mobilePrimaryHrefs.includes(pathname) && pathname !== "/")
+              ? "active"
+              : ""
+          }
+          onClick={() => setMobileMenuOpen(true)}
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-navigation-sheet"
+        >
+          <span>
+            <Menu size={19} strokeWidth={1.8} />
+          </span>
+          More
+        </button>
       </nav>
+      {mobileMenuOpen && (
+        <div
+          className="mobile-menu-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMobileMenuOpen(false);
+          }}
+        >
+          <section
+            className="mobile-menu-sheet"
+            id="mobile-navigation-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-menu-title"
+          >
+            <div className="mobile-menu-head">
+              <div>
+                <span className="section-eyebrow">Navigate</span>
+                <h2 id="mobile-menu-title">Everything in one place</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button mobile-menu-close"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close navigation menu"
+                autoFocus
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="mobile-menu-grid">
+              {mobileMenuLinks.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={pathname === href ? "active" : ""}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <span className="mobile-menu-icon">
+                    <Icon size={20} strokeWidth={1.8} />
+                  </span>
+                  <span>{label}</span>
+                </Link>
+              ))}
+            </div>
+            <div className="mobile-menu-account">
+              <MemberAvatar
+                name={currentDisplayName}
+                userId={userId}
+                avatarUrl={currentProfile?.avatarUrl}
+                size="small"
+              />
+              <div>
+                <strong>{currentDisplayName}</strong>
+                <span>
+                  {online ? currentSyncMessage : "Offline · changes stay here"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="logout-button"
+                onClick={signOut}
+                disabled={signOutBusy}
+                aria-label="Sign out"
+                title="Sign out"
+              >
+                <LogOut size={17} />
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {pendingCount > 0 && (
         <div
           role="dialog"

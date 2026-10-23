@@ -26,16 +26,17 @@ enable_signup = true
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
+otp_length = 6
 
 # Passwordless sign-in can use the confirmation template for a first-time user
 # and the magic-link template for a returning user. Keep both on the same
 # branded link + visible OTP template so the installed PWA behaves identically.
 [auth.email.template.confirmation]
-subject = "Your secure NestList sign-in"
+subject = "Your NestList verification code"
 content_path = "./supabase/email-templates/magic-link.html"
 
 [auth.email.template.magic_link]
-subject = "Your secure NestList sign-in"
+subject = "Your NestList verification code"
 content_path = "./supabase/email-templates/magic-link.html"
 
 [auth.external.google]

@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   CalendarPlus,
+  Sparkles,
+  CircleCheck,
+  Layers3,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -233,13 +236,16 @@ export function TaskBoard({
         void syncNow(userId, getDeviceId(userId)).catch(() => undefined);
     };
     const markOffline = () => setOnline(false);
-    setOnline(navigator.onLine);
+    const onlineFrame = window.requestAnimationFrame(() =>
+      setOnline(navigator.onLine),
+    );
     window.addEventListener("online", trigger);
     window.addEventListener("offline", markOffline);
     window.addEventListener("focus", trigger);
     const interval = window.setInterval(trigger, 30_000);
     return () => {
       active = false;
+      window.cancelAnimationFrame(onlineFrame);
       window.removeEventListener("online", trigger);
       window.removeEventListener("offline", markOffline);
       window.removeEventListener("focus", trigger);
@@ -734,12 +740,26 @@ export function TaskBoard({
         </span>
         <span>{syncLabel}</span>
       </div>
-      <h1 className="greeting">{heading[view]}</h1>
-      <p className="subtitle">
-        {view === "today"
-          ? `A good day starts with one thing, ${activeDisplayName}.`
-          : "Keep your plans clear and easy to return to."}
-      </p>
+      <div className="workspace-heading">
+        <div>
+          <span className="workspace-eyebrow">
+            <Sparkles size={13} aria-hidden="true" /> YOUR{" "}
+            {view === "today" ? "DAILY RESET" : "WORKSPACE"}
+          </span>
+          <h1 className="greeting">{heading[view]}</h1>
+          <p className="subtitle">
+            {view === "today"
+              ? `A good day starts with one thing, ${activeDisplayName}.`
+              : "Keep your plans clear and easy to return to."}
+          </p>
+        </div>
+        <div className="workspace-heading-art" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <CircleCheck size={28} />
+        </div>
+      </div>
       {view === "routines" && (
         <RoutinesPanel
           userId={userId}
@@ -756,6 +776,37 @@ export function TaskBoard({
       )}
       {view === "today" && (
         <>
+          <div className="day-overview" aria-label="Today's overview">
+            <div>
+              <span className="overview-icon">
+                <Layers3 size={18} />
+              </span>
+              <div>
+                <strong>{personalToday.length + circleToday.length}</strong>
+                <span>Tasks to focus on</span>
+              </div>
+            </div>
+            <div>
+              <span className="overview-icon overview-success">
+                <CircleCheck size={18} />
+              </span>
+              <div>
+                <strong>{doneToday.length}</strong>
+                <span>Completed today</span>
+              </div>
+            </div>
+            <div>
+              <span className="overview-icon">
+                <Sparkles size={18} />
+              </span>
+              <div>
+                <strong>
+                  {Math.max(0, capacity - used)} <small>pts</small>
+                </strong>
+                <span>Personal capacity left</span>
+              </div>
+            </div>
+          </div>
           <section className={`capacity-card capacity-${tone}`}>
             <div className="capacity-copy">
               <strong>Your capacity</strong>
