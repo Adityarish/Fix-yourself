@@ -942,8 +942,12 @@ export function SettingsPanel({
   async function testNotification() {
     setNotificationBusy(true);
     try {
-      await showTestNotification();
-      setMessage("Test notification sent to this device.");
+      const systemShown = await showTestNotification();
+      setMessage(
+        systemShown
+          ? "Test popup shown and system notification requested. If no banner appears, check notification settings and Focus / Do Not Disturb."
+          : "Test popup shown in NestList. System notifications are unavailable or blocked; popups still work while the app is open.",
+      );
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -1150,7 +1154,9 @@ export function SettingsPanel({
           </div>
           <p>
             Receive one app notification with all open tasks planned for that
-            day. This uses the installed PWA and never sends a Gmail message.
+            day. On-device popups work while NestList is open. Background
+            notifications require enabling this device and a configured push
+            server.
           </p>
           <label>
             Daily summary time
@@ -1158,7 +1164,6 @@ export function SettingsPanel({
               type="time"
               value={dailyDigestTime}
               onChange={(event) => setDigestTime(event.target.value)}
-              disabled={pushStatus === "unsupported"}
             />
           </label>
           {!installed && (
@@ -1168,6 +1173,35 @@ export function SettingsPanel({
                 : "Install NestList for the most app-like experience and reliable notification access."}
             </p>
           )}
+          <p className="notification-hint">
+            Task reminder popups are automatic while the app is open. You can
+            also enable a daily popup summary without push permission.
+          </p>
+          <button
+            className="subtle-button"
+            disabled={notificationBusy}
+            onClick={async () => {
+              setNotificationBusy(true);
+              try {
+                await saveDailySummaryPreferences(true, dailyDigestTime);
+                await cacheDailySummary(true, dailyDigestTime);
+                setDigestEnabled(true);
+                setMessage(
+                  "Daily popup summary enabled while NestList is open.",
+                );
+              } catch (error) {
+                setMessage(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not enable summary.",
+                );
+              } finally {
+                setNotificationBusy(false);
+              }
+            }}
+          >
+            Enable daily popup summary
+          </button>
           <div className="card-actions">
             {!installed && installPrompt && (
               <button className="subtle-button" onClick={installApp}>
@@ -1196,7 +1230,7 @@ export function SettingsPanel({
                     ? "Save time"
                     : "Enable daily summary"}
             </button>
-            {pushStatus === "enabled" && (
+            {
               <button
                 className="subtle-button"
                 onClick={testNotification}
@@ -1204,7 +1238,7 @@ export function SettingsPanel({
               >
                 <Bell size={15} /> Test notification
               </button>
-            )}
+            }
             {dailyDigestEnabled && (
               <button
                 className="subtle-button"

@@ -24,6 +24,12 @@ import { createClient } from "@/lib/supabase/browser";
 import { syncNow } from "@/lib/sync/engine";
 import { MemberAvatar } from "@/components/member-avatar";
 
+import { NotificationPopups } from "@/components/notification-popups";
+import {
+  showLocalNotice,
+  startReminderScheduler,
+} from "@/lib/notifications/local";
+
 const links = [
   { href: "/today", label: "Today", icon: Home, group: "PLAN" },
   { href: "/planned", label: "Planned", icon: CalendarDays, group: "PLAN" },
@@ -171,48 +177,16 @@ export function WorkspaceShell({
       .catch(() => undefined);
   }, [outboxCount]);
 
-  useEffect(() => {
-    const next = reminderTasks
-      .filter(
-        (task) =>
-          task.remindAt &&
-          !locallyNotified.current.has(`${task.id}:${task.remindAt}`),
-      )
-      .sort((a, b) => Date.parse(a.remindAt!) - Date.parse(b.remindAt!))[0];
-    if (!next?.remindAt) return;
-    const key = `${next.id}:${next.remindAt}`;
-    const timer = window.setTimeout(
-      async () => {
-        locallyNotified.current.add(key);
-        if (
-          !("Notification" in window) ||
-          Notification.permission !== "granted"
-        )
-          return;
-        const registration = await navigator.serviceWorker?.getRegistration();
-        await registration?.showNotification("NestList reminder", {
-          body: next.title,
-          tag: `local-${next.id}`,
-          data: { url: `/today?task=${encodeURIComponent(next.id)}` },
-        });
-      },
-      Math.max(
-        0,
-        Math.min(2_147_000_000, Date.parse(next.remindAt) - Date.now()),
-      ),
-    );
-    return () => window.clearTimeout(timer);
-  }, [reminderTasks]);
+  useEffect(
+    () =>
+      startReminderScheduler(reminderTasks, userId, locallyNotified.current),
+    [reminderTasks, userId],
+  );
 
   useEffect(() => {
     const profile = profileRecord?.value as
       { dailyDigestEnabled?: boolean; dailyDigestTime?: string } | undefined;
-    if (
-      !profile?.dailyDigestEnabled ||
-      !("Notification" in window) ||
-      Notification.permission !== "granted"
-    )
-      return;
+    if (!profile?.dailyDigestEnabled) return;
     const time = profile.dailyDigestTime ?? "08:00";
     const [hours, minutes] = time.split(":").map(Number);
     if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return;
@@ -228,8 +202,6 @@ export function WorkspaceShell({
     scheduledAt.setHours(hours, minutes, 0, 0);
     const timer = window.setTimeout(
       async () => {
-        const registration = await navigator.serviceWorker?.getRegistration();
-        if (!registration) return;
         const visibleTitles: string[] = [];
         for (const task of todaysTasks) {
           const nextLength =
@@ -239,22 +211,20 @@ export function WorkspaceShell({
         }
         const remaining = todaysTasks.length - visibleTitles.length;
         const body = `${visibleTitles.join("\n")}${remaining > 0 ? `\n+${remaining} more` : ""}`;
-        await registration.showNotification(
-          `Today’s plan · ${todaysTasks.length} ${todaysTasks.length === 1 ? "task" : "tasks"}`,
-          {
-            body,
-            icon: "/icons/icon-192.svg",
-            badge: "/icons/icon-192.svg",
-            tag: `daily-summary-${localDate}`,
-            data: { url: "/today", kind: "daily-summary" },
-          },
-        );
+        await showLocalNotice({
+          title: `Today’s plan · ${todaysTasks.length} ${todaysTasks.length === 1 ? "task" : "tasks"}`,
+          body,
+          tag: `daily-summary-${localDate}`,
+          url: "/today",
+        });
         if ("setAppBadge" in navigator)
           await (
             navigator as Navigator & {
               setAppBadge(count: number): Promise<void>;
             }
-          ).setAppBadge(todaysTasks.length);
+          )
+            .setAppBadge(todaysTasks.length)
+            .catch(() => undefined);
         localStorage.setItem(storageKey, new Date().toISOString());
       },
       Math.max(0, scheduledAt.getTime() - now.getTime()),
@@ -285,10 +255,8 @@ export function WorkspaceShell({
           ? `${outboxCount} saved change${outboxCount === 1 ? "" : "s"}`
           : syncMessage;
   const currentProfile = profileRecord?.value as
-    | { displayName?: string; avatarUrl?: string }
-    | undefined;
-  const currentDisplayName =
-    currentProfile?.displayName?.trim() || displayName;
+    { displayName?: string; avatarUrl?: string } | undefined;
+  const currentDisplayName = currentProfile?.displayName?.trim() || displayName;
 
   async function signOut() {
     try {
@@ -368,6 +336,7 @@ export function WorkspaceShell({
 
   return (
     <div className="app-frame">
+      <NotificationPopups key={userId} />
       <aside className="sidebar">
         <Link className="brand" href="/today">
           <span className="brand-mark">≋</span>

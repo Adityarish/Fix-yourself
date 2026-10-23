@@ -1,3 +1,4 @@
+import { showLocalNotice } from "./local";
 import { getDeviceId } from "@/lib/db/repositories/outbox";
 import { createClient } from "@/lib/supabase/browser";
 
@@ -40,8 +41,20 @@ async function getNotificationRegistration() {
     throw new Error(
       "Notifications are available after installing a production build of NestList.",
     );
-  await navigator.serviceWorker.ready;
-  return registration;
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Notification setup timed out. Reload the app and try again.",
+            ),
+          ),
+        10000,
+      ),
+    ),
+  ]);
 }
 
 export async function enablePush(userId: string) {
@@ -94,15 +107,14 @@ export async function enablePush(userId: string) {
 }
 
 export async function showTestNotification() {
-  if (!("Notification" in window) || Notification.permission !== "granted")
-    throw new Error("Enable notifications on this device first.");
-  const registration = await getNotificationRegistration();
-  await registration.showNotification("NestList notifications are ready", {
-    body: "Daily plans and task reminders can now appear on this device.",
-    icon: "/icons/icon-192.svg",
-    badge: "/icons/icon-192.svg",
-    tag: "nestlist-notification-test",
-    data: { url: "/today" },
+  if ("Notification" in window && Notification.permission === "default") {
+    await Notification.requestPermission().catch(() => "default");
+  }
+  return showLocalNotice({
+    title: "NestList notification test",
+    body: "On-device popups are working. Reminders appear here while NestList is open.",
+    tag: `nestlist-test-${Date.now()}`,
+    url: "/today",
   });
 }
 
