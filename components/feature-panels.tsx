@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import { useAppInstall } from "@/components/app-install";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -38,7 +39,6 @@ import {
 import { getDeviceId } from "@/lib/db/repositories/outbox";
 import {
   enablePush,
-  getPushEnvironment,
   getPushStatus,
   saveDailySummaryPreferences,
   showTestNotification,
@@ -644,50 +644,17 @@ export function SettingsPanel({
   const [pushStatus, setPushStatus] = useState<PushStatus>("available");
   const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null);
   const [digestTime, setDigestTime] = useState<string | null>(null);
-  const [installed, setInstalled] = useState(false);
-  const [iosDevice, setIosDevice] = useState(false);
+  const { installed, ios: iosDevice, openInstall } = useAppInstall();
   const [notificationBusy, setNotificationBusy] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<
-    | (Event & {
-        prompt(): Promise<void>;
-        userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-      })
-    | null
-  >(null);
   const dailyDigestEnabled =
     digestEnabled ?? profile?.dailyDigestEnabled ?? false;
   const dailyDigestTime = digestTime ?? profile?.dailyDigestTime ?? "08:00";
 
   useEffect(() => {
     void getPushStatus()
-      .then((status) => {
-        setPushStatus(status);
-        const environment = getPushEnvironment();
-        setInstalled(environment.installed);
-        setIosDevice(environment.ios);
-      })
+      .then(setPushStatus)
       .catch(() => setPushStatus("available"));
-    const captureInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(
-        event as Event & {
-          prompt(): Promise<void>;
-          userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-        },
-      );
-    };
-    const markInstalled = () => {
-      setInstalled(true);
-      setInstallPrompt(null);
-      void getPushStatus().then(setPushStatus);
-    };
-    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
-    window.addEventListener("appinstalled", markInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
-      window.removeEventListener("appinstalled", markInstalled);
-    };
-  }, []);
+  }, [installed]);
 
   async function estimateStorage() {
     const value = await navigator.storage?.estimate();
@@ -959,19 +926,6 @@ export function SettingsPanel({
     }
   }
 
-  async function installApp() {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    if (choice.outcome === "accepted") {
-      setInstalled(true);
-      setInstallPrompt(null);
-      setMessage(
-        "NestList installed. Enable the daily summary when you are ready.",
-      );
-    }
-  }
-
   return (
     <section className="feature-stack settings-columns">
       <div className="settings-column">
@@ -1203,8 +1157,8 @@ export function SettingsPanel({
             Enable daily popup summary
           </button>
           <div className="card-actions">
-            {!installed && installPrompt && (
-              <button className="subtle-button" onClick={installApp}>
+            {!installed && (
+              <button className="subtle-button" onClick={openInstall}>
                 <Download size={15} /> Install app
               </button>
             )}

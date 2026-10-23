@@ -3674,3 +3674,69 @@ fieldset legend {
   margin-left: 1rem;
   cursor: pointer;
 }
+
+.app-install-launcher {
+  position: fixed;
+  left: 1rem;
+  bottom: calc(5rem + env(safe-area-inset-bottom));
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+}
+.app-install-dialog {
+  margin: auto;
+  padding: 0;
+  width: min(520px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 3rem);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+.app-install-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.app-install-content {
+  position: relative;
+  padding: 1.5rem;
+}
+.app-install-content h2 {
+  padding-right: 2rem;
+  font-size: 1.3rem;
+}
+.app-install-content h3 {
+  margin-top: 1.25rem;
+  font-weight: 650;
+}
+.app-install-content p {
+  margin: 0.8rem 0;
+  line-height: 1.6;
+}
+.app-install-content ol {
+  padding-left: 1.4rem;
+  list-style: decimal;
+}
+.app-install-content li {
+  margin: 0.7rem 0;
+  line-height: 1.5;
+}
+.app-install-close {
+  position: absolute;
+  right: 0.8rem;
+  top: 0.8rem;
+}
+@media (max-width: 600px) {
+  body:has(.notification-popup) .app-install-launcher {
+    visibility: hidden;
+  }
+}

@@ -1,11 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import { AppInstallProvider } from "@/components/app-install";
 
 export const metadata: Metadata = {
   applicationName: "NestList",
   title: { default: "NestList", template: "%s · NestList" },
   description: "A calm home for your tasks, routines, and shared plans.",
+  icons: {
+    apple: [
+      {
+        url: "/icons/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
+  },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "NestList" },
 };
 
@@ -20,7 +30,9 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppInstallProvider>{children}</AppInstallProvider>
+      </body>
     </html>
   );
 }
